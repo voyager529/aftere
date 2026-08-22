@@ -1,0 +1,66 @@
+version: 1
+metadata:
+  name: aftere - LDAP bind flow
+  labels:
+    blueprints.goauthentik.io/instantiate: "true"
+entries:
+  # Password stage: referenced BY identification, NOT bound into the flow.
+  # TokenBackend included so the app-password service account (aftere-ldap-bind) can bind.
+  - model: authentik_stages_password.passwordstage
+    id: ldap-password-stage
+    state: present
+    identifiers:
+      name: ldap-authentication-password
+    attrs:
+      backends:
+        - authentik.core.auth.InbuiltBackend
+        - authentik.core.auth.TokenBackend
+
+  # Identification stage: folds in password_stage, matches email AND username
+  # (hal logs in as hal@learningazure.cc -> email MUST be a user_field).
+  - model: authentik_stages_identification.identificationstage
+    id: ldap-identification-stage
+    state: present
+    identifiers:
+      name: ldap-authentication-identification
+    attrs:
+      user_fields: [username, email]
+      password_stage: !KeyOf ldap-password-stage
+      case_insensitive_matching: true
+
+  - model: authentik_stages_user_login.userloginstage
+    id: ldap-user-login-stage
+    state: present
+    identifiers:
+      name: ldap-authentication-login
+
+  # The flow: require_outpost is the line that fixes "does not apply".
+  - model: authentik_flows.flow
+    id: ldap-flow
+    state: present
+    identifiers:
+      slug: ldap-authentication-flow
+    attrs:
+      name: LDAP Authentication
+      title: LDAP Authentication
+      designation: authentication
+      # authentication MUST be none for LDAP outpost binds. require_outpost made
+      # the planner throw FlowNonApplicable ("Flow does not apply to current
+      # user") on EVERY bind -> LDAP error 49 -> nothing downstream worked.
+      # Proven working with none on aftere-0812. The bind context the outpost
+      # provides does not satisfy require_outpost the way the docs imply.
+      authentication: none
+      denied_action: message_continue
+      policy_engine_mode: any
+
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf ldap-flow
+      stage: !KeyOf ldap-identification-stage
+      order: 10
+
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf ldap-flow
+      stage: !KeyOf ldap-user-login-stage
+      order: 20

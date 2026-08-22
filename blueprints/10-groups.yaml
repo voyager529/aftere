@@ -1,0 +1,28 @@
+# =============================================================================
+# after/e/ blueprint — groups
+# =============================================================================
+# aftere-users : every provisioned end user (drives app access + LDAP search).
+# aftere-admins: elevated; is_superuser in Authentik.
+# new-user.sh assigns accounts into aftere-users (and optionally aftere-admins).
+# =============================================================================
+version: 1
+metadata:
+  name: aftere-groups
+  labels:
+    blueprints.goauthentik.io/instantiate: "true"
+entries:
+  - model: authentik_core.group
+    id: aftere-users
+    state: present
+    identifiers:
+      name: aftere-users
+    attrs:
+      is_superuser: false
+
+  - model: authentik_core.group
+    id: aftere-admins
+    state: present
+    identifiers:
+      name: aftere-admins
+    attrs:
+      is_superuser: true
