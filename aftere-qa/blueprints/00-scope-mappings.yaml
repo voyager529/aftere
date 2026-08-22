@@ -1,0 +1,32 @@
+# =============================================================================
+# after/e/ blueprint — custom OIDC scope mappings
+# =============================================================================
+# As of Authentik 2025.10 the default `email` scope sets email_verified=FALSE,
+# and several apps (notably Nextcloud) refuse to authenticate a user whose
+# email isn't verified — the password succeeds and then login mysteriously
+# fails. This mapping re-asserts email_verified=true. OIDC providers below use
+# THIS mapping in place of the default email scope.
+#
+# VERIFY AT QA: the default scope-mapping names referenced elsewhere via !Find
+# ("authentik default OAuth Mapping: OpenID ...") match your 2026.2 install;
+# export with `ak export_blueprint` if a !Find misses.
+# =============================================================================
+version: 1
+metadata:
+  name: aftere-scope-mappings
+  labels:
+    blueprints.goauthentik.io/instantiate: "true"
+entries:
+  - model: authentik_providers_oauth2.scopemapping
+    id: aftere-scope-email
+    state: present
+    identifiers:
+      name: "aftere email (verified=true)"
+    attrs:
+      scope_name: email
+      description: "Email claim with email_verified forced true (after/e/)"
+      expression: |
+        return {
+            "email": request.user.email,
+            "email_verified": True,
+        }

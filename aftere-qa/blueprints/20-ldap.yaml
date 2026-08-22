@@ -1,0 +1,148 @@
+# =============================================================================
+# after/e/ blueprint — LDAP provider + application + outpost
+# =============================================================================
+# Turns authentik-ldap healthy. Kept deliberately minimal after two bugs in the
+# earlier version:
+#   1. It tried to INJECT a known outpost token (key: !Env ...). Authentik does
+#      NOT support this (issue #9711 is still open) — each outpost auto-generates
+#      its own service account + token. We read that token back instead, via
+#      ldap-token.sh, and feed it to the container.
+#   2. It referenced the aftere-users group with !KeyOf, but that group lives in
+#      10-groups.yaml — a CROSS-FILE reference must use !Find. A failed entry
+#      rolls back the whole blueprint, which is why no outpost appeared at all.
+#
+# The bind service account + app-password (for Stalwart's directory search) is
+# deferred to the Stalwart session, where it's actually consumed and where its
+# app-password also needs read-back rather than injection.
+#
+# base_dn is FIXED; Stalwart's LDAP config must use the same value.
+# =============================================================================
+version: 1
+metadata:
+  name: aftere-ldap
+  labels:
+    blueprints.goauthentik.io/instantiate: "true"
+    # ensure the dedicated LDAP bind flow (15-ldap-flow.yaml) applies FIRST;
+    # value is that file's metadata.name. Without this the !Find below can
+    # resolve to nothing and bind_flow silently lands NULL.
+    blueprints.goauthentik.io/depends-on: "aftere - LDAP bind flow"
+entries:
+
+  - model: authentik_providers_ldap.ldapprovider
+    id: aftere-ldap-provider
+    state: present
+    identifiers:
+      name: aftere-ldap
+    attrs:
+      base_dn: "dc=aftere,dc=internal"
+      # authentication_flow is the field that actually links the provider to its
+      # LOGIN flow. NOT bind_flow — that attribute does NOT exist on LDAPProvider
+      # in 2026.2 (dir(provider) has authentication_flow / authorization_flow /
+      # invalidation_flow only). Prior builds set bind_flow, which the model
+      # silently ignored, leaving authentication_flow=None -> outpost had no flow
+      # to run hal's password through -> "AUTHENTICATE PLAIN: Authentication
+      # failed" immediately on every fresh apply. The Aug-5 success set this field
+      # by hand in the UI, which is why it worked once and never survived a
+      # blueprint rebuild. Proven on qa_11 fresh box (aftere-0812). This is THE fix.
+      authentication_flow: !Find [authentik_flows.flow, [slug, ldap-authentication-flow]]
+      # authorization_flow: REQUIRED on this model in 2026.2 (proven qa_10/aftere-0811:
+      # omitting it fails the entry with 'This field is required' and rolls back the
+      # ENTIRE 20-ldap.yaml). BUT it must NOT be the default consent flow: the outpost
+      # RUNS authorization_flow during a bind, and a consent flow does not apply to a
+      # service-account/LDAP bind -> "Flow does not apply to current user" -> LDAP 49 ->
+      # login fails. That was the recurring "repoint the Bind flow by hand" GUI step on
+      # every fresh deploy. Captured from the working provider on aftere-0817: point it at
+      # ldap-authentication-flow (same flow as authentication_flow). Keep it PRESENT
+      # (required) but pointed here. Still pair with the post-blueprint outpost restart
+      # (qa_14) — a correct DB doesn't help until the outpost reloads. Do NOT revert to
+      # the consent flow, and do NOT remove the field.
+      authorization_flow: !Find [authentik_flows.flow, [slug, ldap-authentication-flow]]
+      invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]  # = "Unbind flow" (keep)
+      # bind_mode/search_mode MUST be direct. cached mode holds users+perms in
+      # memory (5-min refresh) and served STALE state that rejected valid binds
+      # for two weeks (ldapwhoami/search returned 49/50 despite correct DB perms).
+      # Proven working with direct on aftere-0812. Do NOT revert to cached.
+      bind_mode: direct
+      search_mode: direct
+      # search authorization is RBAC now (see role+group entries below), NOT the
+      # deprecated search_group attr (dead no-op since authentik 2024.8).
+
+  - model: authentik_core.application
+    id: aftere-ldap-app
+    state: present
+    identifiers:
+      slug: aftere-ldap
+    attrs:
+      name: "after/e/ LDAP Directory"
+      provider: !KeyOf aftere-ldap-provider
+      policy_engine_mode: any
+
+  - model: authentik_outposts.outpost
+    id: aftere-ldap-outpost
+    state: present
+    identifiers:
+      name: aftere-ldap
+    attrs:
+      type: ldap
+      # 2026.2 requires `config` on outposts (it was rejected as missing when
+      # omitted). Minimal: reach the server over the internal docker network.
+      config:
+        authentik_host: "http://authentik-server:9000"
+        authentik_host_insecure: true
+        log_level: info
+      # service account + token are auto-generated; ldap-token.sh reads the
+      # token back and injects it into the container's AUTHENTIK_TOKEN.
+      providers:
+        - !KeyOf aftere-ldap-provider
+
+  # ===========================================================================
+  # RBAC search authorization  [UNVERIFIED SYNTAX — verify against a working
+  # instance export before trusting.] Replaces the dead search_group attr.
+  #
+  # 2026.2 chain (from live debugging): a Role holds the permission, a Group
+  # carries the Role, and the bind account is a member of the Group. The
+  # permission grant that worked live was a GLOBAL grant of
+  # authentik_providers_ldap.search_full_directory. Field names below
+  # (attrs.permissions on the role, attrs.roles on the group) are the pieces
+  # flagged "verify" in the handoff — the ak export of the working role/group
+  # is the source of truth.
+  # ===========================================================================
+  - model: authentik_rbac.role
+    id: ldap-search-role
+    state: present
+    identifiers:
+      name: ldap-search
+    attrs:
+      permissions:
+        - authentik_providers_ldap.search_full_directory
+
+  - model: authentik_core.group
+    id: ldap-search-group
+    state: present
+    identifiers:
+      name: ldap-search-group
+    attrs:
+      roles:
+        - !KeyOf ldap-search-role
+  # NOTE: the aftere-ldap-bind service account (created in the Stalwart
+  # provisioning session) must join ldap-search-group. Wire that where the
+  # account is created — has_perm(search_full_directory) must be True for it.
+
+  # ---------------------------------------------------------------------------
+  # The bind service account Stalwart authenticates as (cn=aftere-ldap-bind,
+  # ou=users,dc=aftere,dc=internal). Member of ldap-search-group so it inherits
+  # the search_full_directory permission. Its app-password (LDAP_BIND_PASSWORD)
+  # is created + read back by ldap-bind.sh (can't be injected — like the outpost
+  # token, #9711 class).
+  # ---------------------------------------------------------------------------
+  - model: authentik_core.user
+    id: aftere-ldap-bind-user
+    state: present
+    identifiers:
+      username: aftere-ldap-bind
+    attrs:
+      name: "after/e/ LDAP bind service account"
+      type: service_account
+      path: users
+      ak_groups:
+        - !KeyOf ldap-search-group

@@ -1,0 +1,340 @@
+# =============================================================================
+# after/e/ — docker-compose.yml   (SECOND DRAFT)
+# =============================================================================
+# Read alongside ARCHITECTURE.md. Image tags pinned to verified-current values
+# (nginx floats deliberately on :alpine per "float stateless, pin stateful").
+# Re-verify before any real deploy; record in CHANGELOG.
+#
+# NETWORKS: proxy (edge: nginx <-> apps, stalwart <-> ldap) and data (apps <->
+#   DBs + cache; DBs live here ONLY; nginx/stalwart are NOT on it).
+# TIERS via COMPOSE_PROFILES: mail | photos | vault.
+# =============================================================================
+
+name: aftere
+
+x-common: &common
+  restart: unless-stopped
+  environment:
+    TZ: ${TZ:-Etc/UTC}
+
+# Shared Authentik environment applied to BOTH server and worker. The worker is
+# what seeds akadmin's bootstrap password; if only the server carries these vars,
+# akadmin is created with NO usable password. Keeping them identical via one
+# anchor prevents that divergence from ever recurring.
+x-authentik-env: &authentik-env
+  TZ: ${TZ:-Etc/UTC}
+  AFTERE_DOMAIN: ${AFTERE_DOMAIN}
+  AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY}
+  AUTHENTIK_POSTGRESQL__HOST: authentik-db
+  AUTHENTIK_POSTGRESQL__USER: authentik
+  AUTHENTIK_POSTGRESQL__NAME: authentik
+  AUTHENTIK_POSTGRESQL__PASSWORD: ${PG_AUTHENTIK_PASSWORD}
+  AUTHENTIK_REDIS__HOST: redis
+  AUTHENTIK_REDIS__DB: 0
+  AUTHENTIK_BOOTSTRAP_PASSWORD: ${AUTHENTIK_BOOTSTRAP_PASSWORD}
+  AUTHENTIK_BOOTSTRAP_TOKEN: ${AUTHENTIK_BOOTSTRAP_TOKEN}
+  AUTHENTIK_BOOTSTRAP_EMAIL: ${AFTERE_ADMIN_EMAIL}
+  # blueprint !Env resolution (the worker applies blueprints; harmless on server):
+  OIDC_NEXTCLOUD_SECRET: ${OIDC_NEXTCLOUD_SECRET}
+  OIDC_IMMICH_SECRET: ${OIDC_IMMICH_SECRET}
+  OIDC_VAULTWARDEN_SECRET: ${OIDC_VAULTWARDEN_SECRET}
+  AUTHENTIK_LDAP_TOKEN: ${AUTHENTIK_LDAP_TOKEN}
+  LDAP_BIND_PASSWORD: ${LDAP_BIND_PASSWORD}
+
+networks:
+  proxy:
+    name: aftere_proxy
+  data:
+    name: aftere_data
+    internal: true
+
+services:
+
+  nginx:
+    <<: *common
+    image: nginx:alpine                 # deliberately floating (stateless edge)
+    container_name: aftere-nginx
+    depends_on:
+      - authentik-server
+      - nextcloud
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ${AFTERE_CONFIG}/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ${AFTERE_CONFIG}/nginx/snippets:/etc/nginx/snippets:ro
+      - ${AFTERE_CONFIG}/certs:/etc/nginx/certs:ro
+      - ${AFTERE_CONFIG}/acme-challenge:/var/www/acme-challenge:ro
+      - ${AFTERE_CONFIG}/nginx/logs:/var/log/nginx
+    networks: [proxy]
+
+  # --- Identity (always on) --------------------------------------------------
+  authentik-db:
+    <<: *common
+    image: postgres:16-alpine
+    container_name: aftere-authentik-db
+    environment:
+      TZ: ${TZ:-Etc/UTC}
+      POSTGRES_USER: authentik
+      POSTGRES_DB: authentik
+      POSTGRES_PASSWORD: ${PG_AUTHENTIK_PASSWORD}
+    volumes:
+      - ${AFTERE_CONFIG}/authentik/db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authentik"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [data]
+
+  authentik-server:
+    <<: *common
+    image: ghcr.io/goauthentik/server:2026.5
+    container_name: aftere-authentik-server
+    command: server
+    # No host port: readiness is checked by polling the worker for akadmin, and
+    # nginx reverse-proxies auth.$DOMAIN -> authentik-server:9000 over proxy net.
+    environment: *authentik-env
+    volumes:
+      - ${AFTERE_CONFIG}/authentik/media:/media
+      - ${AFTERE_CONFIG}/authentik/templates:/templates
+      - ${AFTERE_CONFIG}/authentik/blueprints:/blueprints/custom
+    depends_on:
+      authentik-db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [proxy, data]
+
+  authentik-worker:
+    <<: *common
+    image: ghcr.io/goauthentik/server:2026.5
+    container_name: aftere-authentik-worker
+    command: worker
+    environment: *authentik-env
+    volumes:
+      - ${AFTERE_CONFIG}/authentik/media:/media
+      - ${AFTERE_CONFIG}/authentik/templates:/templates
+      - ${AFTERE_CONFIG}/authentik/blueprints:/blueprints/custom
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      authentik-db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [proxy, data]
+
+  authentik-ldap:
+    <<: *common
+    image: ghcr.io/goauthentik/ldap:2026.5
+    container_name: aftere-authentik-ldap
+    environment:
+      TZ: ${TZ:-Etc/UTC}
+      AUTHENTIK_HOST: http://authentik-server:9000
+      AUTHENTIK_INSECURE: "true"
+      AUTHENTIK_TOKEN: ${AUTHENTIK_LDAP_TOKEN}
+    depends_on: [authentik-server]
+    networks: [proxy]
+    # NOTE: stays (unhealthy) until the LDAP-provider blueprint exists (deferred).
+
+  # --- Shared cache (always on) ---------------------------------------------
+  redis:
+    <<: *common
+    image: valkey/valkey:8-alpine
+    container_name: aftere-redis
+    command: ["valkey-server", "--save", "60", "1", "--appendonly", "no"]
+    volumes:
+      - ${AFTERE_CONFIG}/redis:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [data]
+
+  # --- Files + PIM (always on) ----------------------------------------------
+  nextcloud-db:
+    <<: *common
+    image: postgres:16-alpine
+    container_name: aftere-nextcloud-db
+    environment:
+      TZ: ${TZ:-Etc/UTC}
+      POSTGRES_USER: nextcloud
+      POSTGRES_DB: nextcloud
+      POSTGRES_PASSWORD: ${PG_NEXTCLOUD_PASSWORD}
+    volumes:
+      - ${AFTERE_CONFIG}/nextcloud/db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nextcloud"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [data]
+
+  nextcloud:
+    <<: *common
+    image: nextcloud:34-apache
+    container_name: aftere-nextcloud
+    environment:
+      TZ: ${TZ:-Etc/UTC}
+      POSTGRES_HOST: nextcloud-db
+      POSTGRES_DB: nextcloud
+      POSTGRES_USER: nextcloud
+      POSTGRES_PASSWORD: ${PG_NEXTCLOUD_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_HOST_PORT: 6379
+      NEXTCLOUD_TRUSTED_DOMAINS: ${AFTERE_DOMAIN}
+      # Auto-install on first boot so the public setup wizard is NEVER exposed
+      # (whoever reaches it first becomes admin). With these + the POSTGRES vars
+      # set, the image runs occ maintenance:install itself before serving.
+      # postinstall-nextcloud.sh then adds proxy/LDAP/apps (its install step skips).
+      NEXTCLOUD_ADMIN_USER: ${NEXTCLOUD_ADMIN_USER}
+      NEXTCLOUD_ADMIN_PASSWORD: ${NEXTCLOUD_ADMIN_PASSWORD}
+      OVERWRITEPROTOCOL: https
+    volumes:
+      - ${AFTERE_CONFIG}/nextcloud/html:/var/www/html
+      - ${AFTERE_DATA}/nextcloud:/var/www/html/data
+    depends_on:
+      nextcloud-db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [proxy, data]
+
+  # --- Mail (profile: mail) --------------------------------------------------
+  stalwart:
+    <<: *common
+    image: stalwartlabs/stalwart:v0.16
+    container_name: aftere-stalwart
+    profiles: [mail]
+    # environment REPLACES the anchor's (no deep merge) — so TZ must be re-declared.
+    # STALWART_RECOVERY_ADMIN pins a known admin so bootstrap doesn't generate a
+    # random logged password; it's also the directory-independent break-glass.
+    environment:
+      TZ: ${TZ:-Etc/UTC}
+      STALWART_RECOVERY_ADMIN: "admin:${STALWART_RECOVERY_PW}"
+      # NOTE (build 16): RUST_LOG does NOT drive Stalwart's logging. Confirmed live
+      # on 0818 — set to stalwart=debug,directory=trace,store=debug and the RCPT
+      # lookup produced zero output. Stalwart logs via a Tracer OBJECT, and the
+      # seeded config.json ships none + the default is disabled, so deploys are
+      # blind. The real fix (build 17) is seeding a Console Tracer (enabled, level
+      # info) captured from a working box — NOT this env var, and NOT a hand-guessed
+      # config.json envelope. RUST_LOG left here as harmless (may still set verbosity
+      # once a real tracer exists); it is not the mechanism.
+      RUST_LOG: ${STALWART_RUST_LOG:-stalwart=info,smtp=info,imap=info,store=warn}
+    ports:
+      - "25:25"
+      - "465:465"
+      - "587:587"
+      - "993:993"
+      - "4190:4190"
+      - "127.0.0.1:8080:8080"   # mgmt API for host stalwart-cli
+    volumes:
+      - ${AFTERE_CONFIG}/stalwart/etc:/etc/stalwart
+      - ${AFTERE_DATA}/stalwart:/var/lib/stalwart
+      - ${AFTERE_CONFIG}/certs:/etc/stalwart/certs:ro
+    depends_on: [authentik-ldap]
+    networks: [proxy]
+
+  roundcube:
+    <<: *common
+    image: roundcube/roundcubemail:1.7.x-apache
+    container_name: aftere-roundcube
+    profiles: [mail]
+    environment:
+      TZ: ${TZ:-Etc/UTC}
+      ROUNDCUBEMAIL_DB_TYPE: sqlite
+      # Talk to Stalwart over the INTERNAL docker network by container name, not
+      # the public hostname. Pointing at ssl://mail.${AFTERE_DOMAIN} makes the
+      # webmail->IMAP hop leave the box, hit public DNS, and try to re-enter on
+      # 993 from outside -> ~60s timeout -> nginx 504 (proven qa_10/aftere-0811).
+      # Internal name resolves on the proxy net; TLS peer-verify is relaxed for
+      # this leg via the seeded aftere-tls.inc.php (Stalwart presents a self-
+      # signed cert on the container name). Browser->nginx stays fully verified.
+      ROUNDCUBEMAIL_DEFAULT_HOST: ssl://aftere-stalwart
+      ROUNDCUBEMAIL_DEFAULT_PORT: 993
+      ROUNDCUBEMAIL_SMTP_SERVER: ssl://aftere-stalwart
+      ROUNDCUBEMAIL_SMTP_PORT: 465
+    volumes:
+      - ${AFTERE_CONFIG}/roundcube:/var/roundcube/config
+      - ${AFTERE_CONFIG}/roundcube-db:/var/roundcube/db
+    depends_on: [stalwart]
+    networks: [proxy]
+
+  # --- Photos (profile: photos) ---------------------------------------------
+  immich-db:
+    <<: *common
+    image: ghcr.io/immich-app/postgres:14-vectorchord1.1.1
+    container_name: aftere-immich-db
+    profiles: [photos]
+    environment:
+      TZ: ${TZ:-Etc/UTC}
+      POSTGRES_USER: ${IMMICH_DB_USERNAME}
+      POSTGRES_DB: ${IMMICH_DB_DATABASE}
+      POSTGRES_PASSWORD: ${PG_IMMICH_PASSWORD}
+      POSTGRES_INITDB_ARGS: '--data-checksums'
+    volumes:
+      - ${AFTERE_CONFIG}/immich/db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${IMMICH_DB_USERNAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [data]
+
+  immich-server:
+    <<: *common
+    image: ghcr.io/immich-app/immich-server:release
+    container_name: aftere-immich-server
+    profiles: [photos]
+    environment:
+      TZ: ${TZ:-Etc/UTC}
+      DB_HOSTNAME: immich-db
+      DB_USERNAME: ${IMMICH_DB_USERNAME}
+      DB_DATABASE_NAME: ${IMMICH_DB_DATABASE}
+      DB_PASSWORD: ${PG_IMMICH_PASSWORD}
+      REDIS_HOSTNAME: redis
+      REDIS_DBINDEX: 2
+    volumes:
+      - ${AFTERE_DATA}/immich:/usr/src/app/upload
+    depends_on:
+      immich-db: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    networks: [proxy, data]
+
+  immich-ml:
+    <<: *common
+    image: ghcr.io/immich-app/immich-machine-learning:release
+    container_name: aftere-immich-ml
+    profiles: [immich-ml]   # gated separately from [photos]; init adds this
+                            # profile only when AFTERE_IMMICH_ML=true
+    environment:
+      TZ: ${TZ:-Etc/UTC}
+    volumes:
+      - ${AFTERE_CONFIG}/immich/ml-cache:/cache
+    networks: [data]
+    # Installer omits this service when AFTERE_IMMICH_ML=false (see init.sh).
+
+  # --- Passwords (profile: vault) -------------------------------------------
+  vaultwarden:
+    <<: *common
+    image: vaultwarden/server:1.37.1-alpine
+    container_name: aftere-vaultwarden
+    profiles: [vault]
+    environment:
+      TZ: ${TZ:-Etc/UTC}
+      DOMAIN: https://vault.${AFTERE_DOMAIN}
+      ADMIN_TOKEN: ${VAULTWARDEN_ADMIN_TOKEN}
+      SIGNUPS_ALLOWED: "false"
+    volumes:
+      - ${AFTERE_CONFIG}/vaultwarden:/data
+    networks: [proxy]
+
+  # --- Edge security (always on) --------------------------------------------
+  crowdsec:
+    <<: *common
+    image: crowdsecurity/crowdsec:v1.7.7
+    container_name: aftere-crowdsec
+    environment:
+      TZ: ${TZ:-Etc/UTC}
+      COLLECTIONS: "crowdsecurity/nginx"
+      GID: "${PGID:-1000}"
+    volumes:
+      - ${AFTERE_CONFIG}/crowdsec/config:/etc/crowdsec
+      - ${AFTERE_CONFIG}/crowdsec/data:/var/lib/crowdsec/data
+      - ${AFTERE_CONFIG}/nginx/logs:/var/log/nginx:ro
+    networks: [proxy]
