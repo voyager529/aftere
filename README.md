@@ -50,17 +50,29 @@ One domain name
 
 SIMPLIFIED INSTALLATION INSTRUCTIONS:
 1a. spin up a VPS instance, VM, or other such install destination.
+
 1b. ensure you have SSH access, as well as port forwards for 80, 443, 465, and 993.
+
 1c. ensure you have access to make A records and CNAME records with your registrar.
+
 1d. it is strongly recommended to acquire an account with Mailgun, Mailjet, or SMTP2Go.
+
 2. Upload contents of this Github repo to /mnt/aftere. chmod +x *.sh .
+
 3. run prereq.sh .
+
 4. run dns-setup.sh . This script will provide DNS values; make the prescribed entries.
+
 5. run init.sh . This step will ask most of the setup questions, and install when done.
+
 6. run stalwart-provision.sh . This step gets the e-mail server functional.
+
 7. run postinstall-nextcloud.sh . This step gets Nextcloud syncing data.
+
 8. run newuser.sh and create a new user account by answering its questions.
+
 9. go to https://webmail.yourdomain.com; log in with those credentials to create the mailbox.
+
 10. go to https://yourdomain.com; log in with the same credentials to create the Nextcloud acct.
 
 
