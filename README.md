@@ -55,13 +55,13 @@ Immich's Machine Learning capabilities are added.
 
 1. Prerequisite Setup:
 
-  a. spin up a VPS instance, VM, or other such install destination.
+         a. spin up a VPS instance, VM, or other such install destination.
+
+         b. ensure you have SSH access, as well as port forwards for 80, 443, 465, and 993.
+
+         c. ensure you have access to make A records and CNAME records with your registrar.
   
-  b. ensure you have SSH access, as well as port forwards for 80, 443, 465, and 993.
-  
-  c. ensure you have access to make A records and CNAME records with your registrar.
-  
-  d. it is strongly recommended to acquire an account with Mailgun, Mailjet, or SMTP2Go.
+         d. it is strongly recommended to acquire an account with Mailgun, Mailjet, or SMTP2Go.
 
 2. Upload contents of this Github repo to /mnt/aftere. chmod +x *.sh .
 
