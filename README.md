@@ -55,35 +55,49 @@ Immich's Machine Learning capabilities are added.
 
 1. Prerequisite Setup:
 
-         a. spin up a VPS instance, VM, or other such install destination.
+    a. spin up a VPS instance, VM, or other such install destination.
 
-         b. ensure you have SSH access, as well as port forwards for 80, 443, 465, and 993.
+    b. ensure you have SSH access, as well as port forwards for 80, 443, 465, and 993.
 
-         c. ensure you have access to make A records and CNAME records with your registrar.
-  
-         d. it is strongly recommended to acquire an account with Mailgun, Mailjet, or SMTP2Go.
+    c. ensure you have access to make A records and CNAME records with your registrar.
 
-2. Upload contents of this Github repo to /mnt/aftere. chmod +x *.sh .
+    d. it is strongly recommended to acquire an account with Mailgun, Mailjet, or SMTP2Go.
 
-3. run prereq.sh .
+3. Upload contents of this Github repo to /mnt/aftere. chmod +x *.sh .
 
-4. run dns-setup.sh . This script will provide DNS values; make the prescribed entries.
+4. run prereq.sh .
 
-5. run init.sh . This step will ask most of the setup questions, and install when done.
+5. run dns-setup.sh . This script will provide DNS values; make the prescribed entries.
 
-6. run stalwart-provision.sh . This step gets the e-mail server functional.
+6. run init.sh . This step will ask most of the setup questions, and install when done.
 
-7. run postinstall-nextcloud.sh . This step gets Nextcloud syncing data.
+7. run stalwart-provision.sh . This step gets the e-mail server functional.
 
-8. run newuser.sh and create a new user account by answering its questions.
+8. run postinstall-nextcloud.sh . This step gets Nextcloud syncing data.
 
-9. go to https://webmail.yourdomain.com; log in with those credentials to create the mailbox.
+9. run newuser.sh and create a new user account by answering its questions.
 
-10. go to https://yourdomain.com; log in with the same credentials to create the Nextcloud acct.
+10. go to https://webmail.yourdomain.com; log in with those credentials to create the mailbox.
+
+11. go to https://yourdomain.com; log in with the same credentials to create the Nextcloud acct.
 
 
 <h3>PRESENT STATE OF PROJECT IS ALPHA.</h3>
+
 --Stalwart Mail, Authentik, and Nextcloud are known working, complete with mail traversal.
+
 --Other projects (Immich, Vaultwarden) have not been linked to Authentik yet.
+
 --Not every possible permutation of init.sh has been tested, though most have.
---Testing with /e/OS has been done on a new phone with no data; no migration procedures exist yet.
+
+--Testing with /e/OS has been done on a new phone with no data.
+
+
+<h3>Future Goals:</h3>
+
+1. Finalize connectivity of Immich and Vaultwarden.
+2. General cleanup and optimization of install process.
+3. Migration functions for existing /e/Cloud users.
+4. Step-by-step deployment guide.
+5. Update and backup scripts.
+6. Potential addition of additional applications (2FAuth, KitchenOwl, etc.)
