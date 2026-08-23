@@ -1,4 +1,4 @@
-<h1>After-e-</h1>
+<h1>After -e-</h1>
 
 **after -e-** is a self-hosted personal-cloud stack: a coordinated deployment of
 Authentik, Nextcloud, Stalwart, Immich, Vaultwarden, and Roundcube. after -e- is 
@@ -24,7 +24,7 @@ with the following changes:
   -  Use of Authentik as an SSO provider with both LDAP and ODIC, with all scripts
   integrating with a single identity.
 
-<h2>AI disclosure:</h2>
+<h2>AI disclosure and disclaimer:</h2>
 The scripts themselves were written by Anthropic Claude; my ability to write 
 shell scripts is very limited. However, all QA is performed directly with
 human oversight; no AI system is given direct access to this repository. All
@@ -42,14 +42,20 @@ ANY TIME. YOU ARE CHOOSING TO SELF-HOST YOUR DATA AND ACCEPT BOTH THE FREEDOM AN
 RESPONSIBILITY WHICH COMES WITH DOING SO.
 
 <h2>SYSTEM REQUIREMENTS:</h2>
-- Debian 12/13 were tested; Ubuntu and other Debian derivatives may work, but are not
+
+ - Debian 12/13 were tested; Ubuntu and other Debian derivatives may work, but are not
 checked in QA.
-- 2-4 CPU cores should be sufficient for up to ten users and dependent on whether 
+
+ - 2-4 CPU cores should be sufficient for up to ten users and dependent on whether 
 Immich's Machine Learning capabilities are added.
-- 4-16GB RAM, depending on installed tier and desired responsiveness
-- 20GB system volume + larger volume for photos/files/mail
-- One publicly addressable IPv4 address
-- One domain name
+
+ - 4-16GB RAM, depending on installed tier and desired responsiveness
+ 
+ - 20GB system volume + larger volume for photos/files/mail
+ 
+ - One publicly addressable IPv4 address
+ 
+ - One domain name
 
 <h2>SIMPLIFIED INSTALLATION INSTRUCTIONS:</h2>
 
@@ -95,9 +101,11 @@ Immich's Machine Learning capabilities are added.
 
 <h3>Future Goals:</h3>
 
-1. Finalize connectivity of Immich and Vaultwarden.
-2. General cleanup and optimization of install process.
-3. Migration functions for existing /e/Cloud users.
-4. Step-by-step deployment guide.
-5. Update and backup scripts.
-6. Potential addition of additional applications (2FAuth, KitchenOwl, etc.)
+1. Tweaks and QoL improvements for Nextcloud on web.
+2. Finalize connectivity of Immich and Vaultwarden.
+3. General cleanup and optimization of install process.
+4. Migration functions for existing /e/Cloud users.
+6. Step-by-step deployment guide, including description of mobile app installations and configs.
+7. Testing and deployment guide for iodeOS.
+8. Update and backup scripts.
+9. Potential addition of additional applications (2FAuth, KitchenOwl, OnlyOffice/EuroOffice, etc.)
