@@ -1,3 +1,5 @@
+<h1>After-e-</h1>
+
 **after -e-** is a self-hosted personal-cloud stack: a coordinated deployment of
 Authentik, Nextcloud, Stalwart, Immich, Vaultwarden, and Roundcube. after -e- is 
 the series of shell scripts which perform the installation of these projects,
@@ -22,8 +24,9 @@ with the following changes:
   -  Use of Authentik as an SSO provider with both LDAP and ODIC, with all scripts
   integrating with a single identity.
 
-AI disclosure: The scripts themselves were written by Anthropic Claude; my ability
-to write shell scripts is very limited. However, all QA is performed directly with
+<h2>AI disclosure:</h2>
+The scripts themselves were written by Anthropic Claude; my ability to write 
+shell scripts is very limited. However, all QA is performed directly with
 human oversight; no AI system is given direct access to this repository. All
 functionality is verified by human verification before upload. Documentation will
 likely be a combination of human and AI writing; effort will be put into noting
@@ -38,25 +41,27 @@ LICENSES TO WHICH YOU MUST AGREE, AND WHICH MAY DISCONTINUE THEIR EXISTENCE AT
 ANY TIME. YOU ARE CHOOSING TO SELF-HOST YOUR DATA AND ACCEPT BOTH THE FREEDOM AND 
 RESPONSIBILITY WHICH COMES WITH DOING SO.
 
-SYSTEM REQUIREMENTS:
-Debian 12/13 were tested; Ubuntu and other Debian derivatives may work, but are not
+<h2>SYSTEM REQUIREMENTS:</h2>
+- Debian 12/13 were tested; Ubuntu and other Debian derivatives may work, but are not
 checked in QA.
-2-4 CPU cores should be sufficient for up to ten users and dependent on whether 
+- 2-4 CPU cores should be sufficient for up to ten users and dependent on whether 
 Immich's Machine Learning capabilities are added.
-4-16GB RAM, depending on installed tier and desired responsiveness
-20GB system volume + larger volume for photos/files/mail
-One publicly addressable IPv4 address
-One domain name
+- 4-16GB RAM, depending on installed tier and desired responsiveness
+- 20GB system volume + larger volume for photos/files/mail
+- One publicly addressable IPv4 address
+- One domain name
 
-SIMPLIFIED INSTALLATION INSTRUCTIONS:
+<h2>SIMPLIFIED INSTALLATION INSTRUCTIONS:</h2>
 
-1a. spin up a VPS instance, VM, or other such install destination.
+1. Prerequisite Setup:
 
-1b. ensure you have SSH access, as well as port forwards for 80, 443, 465, and 993.
-
-1c. ensure you have access to make A records and CNAME records with your registrar.
-
-1d. it is strongly recommended to acquire an account with Mailgun, Mailjet, or SMTP2Go.
+  a. spin up a VPS instance, VM, or other such install destination.
+  
+  b. ensure you have SSH access, as well as port forwards for 80, 443, 465, and 993.
+  
+  c. ensure you have access to make A records and CNAME records with your registrar.
+  
+  d. it is strongly recommended to acquire an account with Mailgun, Mailjet, or SMTP2Go.
 
 2. Upload contents of this Github repo to /mnt/aftere. chmod +x *.sh .
 
@@ -77,7 +82,7 @@ SIMPLIFIED INSTALLATION INSTRUCTIONS:
 10. go to https://yourdomain.com; log in with the same credentials to create the Nextcloud acct.
 
 
-PRESENT STATE OF PROJECT IS ALPHA.
+<h3>PRESENT STATE OF PROJECT IS ALPHA.</h3>
 --Stalwart Mail, Authentik, and Nextcloud are known working, complete with mail traversal.
 --Other projects (Immich, Vaultwarden) have not been linked to Authentik yet.
 --Not every possible permutation of init.sh has been tested, though most have.
