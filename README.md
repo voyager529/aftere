@@ -49,6 +49,7 @@ One publicly addressable IPv4 address
 One domain name
 
 SIMPLIFIED INSTALLATION INSTRUCTIONS:
+
 1a. spin up a VPS instance, VM, or other such install destination.
 
 1b. ensure you have SSH access, as well as port forwards for 80, 443, 465, and 993.
