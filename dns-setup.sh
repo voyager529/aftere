@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# after/e/ — dns-setup.sh   [SECOND DRAFT]
+# after-e- — dns-setup.sh   [SECOND DRAFT]
 # =============================================================================
 # Shows exactly which DNS records to create (computed from the shared hostname
 # model in common.sh), then loops checking A + MX (blocking) and PTR (advisory)
@@ -31,7 +31,8 @@ fi
 AUTH_NS="$(dig +short NS "$DOMAIN" | head -n1)"
 if [[ -z "$AUTH_NS" ]]; then warn "no authoritative NS for $DOMAIN yet — using default resolver."; NS_ARG=(); else NS_ARG=("@$AUTH_NS"); fi
 
-mapfile -t HOSTS < <(active_hosts "$DOMAIN" "$PROFILES")
+mapfile -t HOSTS < <(active_hosts "$DOMAIN" "$PROFILES")       # deployed set — drives the resolve GATE
+mapfile -t PRINT_HOSTS < <(all_hosts "$DOMAIN")                # full roster — advisory DISPLAY (always shows mail. etc.)
 
 # =============================================================================
 # DISPLAY
@@ -40,7 +41,7 @@ step "DNS records for ${c_bold}${DOMAIN}${c_end}  (server public IP: ${c_bold}${
 echo
 echo "  ${c_bold}A records${c_end} (add AAAA too if you have IPv6):"
 printf '    %-28s %-6s %s\n' HOST TYPE VALUE
-for h in "${HOSTS[@]}"; do printf '    %-28s %-6s %s\n' "$h" A "$PUBLIC_IP"; done
+for h in "${PRINT_HOSTS[@]}"; do printf '    %-28s %-6s %s\n' "$h" A "$PUBLIC_IP"; done
 
 if $MAIL_ON; then
   echo; echo "  ${c_bold}MX${c_end} (required even in relay mode):"

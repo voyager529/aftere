@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# after/e/ — reset.sh   (QA convenience: return to a clean pre-install state)
+# after-e- — reset.sh   (QA convenience: return to a clean pre-install state)
 # =============================================================================
 # Stops + removes containers/networks, deletes config + data (bind mounts) AND
 # the root .env / answers.env (secrets + resume cache live OUTSIDE config/).
@@ -16,7 +16,7 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 CONFIG_PATH="$(getcfg AFTERE_CONFIG || echo /mnt/aftere/config)"
 DATA_PATH="$(getcfg AFTERE_DATA   || echo /mnt/aftere/data)"
 
-echo "  This will STOP all after/e/ containers and permanently DELETE:"
+echo "  This will STOP all after-e- containers and permanently DELETE:"
 echo "    - ${CONFIG_PATH}   (all state: databases, certs, blueprints, acme)"
 echo "    - ${DATA_PATH}   (bulk: nextcloud / immich / stalwart data)"
 echo "    - ${ENV_FILE}   (generated secrets)"

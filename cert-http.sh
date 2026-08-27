@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# after/e/ — cert-http.sh   (HTTP-01 via acme.sh)   [SECOND DRAFT]
+# after-e- — cert-http.sh   (HTTP-01 via acme.sh)   [SECOND DRAFT]
 # =============================================================================
 # Separate cert per hostname in domains.list (seeded from the shared hostname
 # model). Standalone challenge with nginx stopped + EXIT-trap restart. Installs
@@ -48,7 +48,7 @@ ACME=( "${ACME_HOME}/acme.sh" --home "$ACME_HOME" )
 # --- seed / read domains.list (from the shared hostname model) --------------
 if [[ ! -f "$DOMAINS_FILE" ]]; then
   step "Seeding ${DOMAINS_FILE}"
-  { echo "# after/e/ SSL domains — one hostname per line. Add + re-run to extend."
+  { echo "# after-e- SSL domains — one hostname per line. Add + re-run to extend."
     active_hosts "$DOMAIN" "$PROFILES"; } > "$DOMAINS_FILE"
   ok "seeded $(grep -cvE '^\s*(#|$)' "$DOMAINS_FILE") hostnames"
 fi

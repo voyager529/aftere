@@ -1,5 +1,5 @@
 # =============================================================================
-# after/e/ — docker-compose.yml   (SECOND DRAFT)
+# after-e- — docker-compose.yml   (SECOND DRAFT)
 # =============================================================================
 # Read alongside ARCHITECTURE.md. Image tags pinned to verified-current values
 # (nginx floats deliberately on :alpine per "float stateless, pin stateful").
@@ -44,6 +44,11 @@ x-authentik-env: &authentik-env
 networks:
   proxy:
     name: aftere_proxy
+    # Fixed subnet so Stalwart can trust the internal containers (roundcube etc.)
+    # via an AllowedIp. MUST match the AllowedIp address in stalwart-provision.sh.
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
   data:
     name: aftere_data
     internal: true
@@ -183,7 +188,7 @@ services:
       # Auto-install on first boot so the public setup wizard is NEVER exposed
       # (whoever reaches it first becomes admin). With these + the POSTGRES vars
       # set, the image runs occ maintenance:install itself before serving.
-      # postinstall-nextcloud.sh then adds proxy/LDAP/apps (its install step skips).
+      # nextcloud-provision.sh then adds proxy/LDAP/apps (its install step skips).
       NEXTCLOUD_ADMIN_USER: ${NEXTCLOUD_ADMIN_USER}
       NEXTCLOUD_ADMIN_PASSWORD: ${NEXTCLOUD_ADMIN_PASSWORD}
       OVERWRITEPROTOCOL: https
@@ -249,6 +254,11 @@ services:
       ROUNDCUBEMAIL_DEFAULT_PORT: 993
       ROUNDCUBEMAIL_SMTP_SERVER: ssl://aftere-stalwart
       ROUNDCUBEMAIL_SMTP_PORT: 465
+      # Filter rule-builder: managesieve gives users a friendly "if X then Y" UI
+      # that generates Sieve and pushes it to Stalwart over ManageSieve (4190).
+      # The plugin defaults its host to the IMAP host (aftere-stalwart); confirm
+      # Stalwart's ManageSieve listener is up + reachable on 4190 at QA.
+      ROUNDCUBEMAIL_PLUGINS: managesieve
     volumes:
       - ${AFTERE_CONFIG}/roundcube:/var/roundcube/config
       - ${AFTERE_CONFIG}/roundcube-db:/var/roundcube/db

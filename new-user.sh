@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# after/e/ — new-user.sh
+# after-e- — new-user.sh
 # =============================================================================
 # Creates/updates a user in Authentik (the identity source of truth) and issues
 # a credential. Apps provision just-in-time off OIDC/LDAP on first login, so the

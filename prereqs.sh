@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# after/e/ — prereqs.sh   (run FIRST)   [SECOND DRAFT]
+# after-e- — prereqs.sh   (run FIRST)   [SECOND DRAFT]
 # =============================================================================
 # Debian-family only. Idempotent. Installs the host tooling the other scripts
 # depend on: Docker CE + compose plugin, cron (acme.sh renewals need it), git +
@@ -25,6 +25,64 @@ case "$DIST_ID" in
 esac
 [[ -n "$CODENAME" ]] || { CODENAME="bookworm"; warn "no VERSION_CODENAME; assuming '$CODENAME'."; }
 ok "detected ${PRETTY_NAME:-$DIST_ID} ($CODENAME, $(dpkg --print-architecture))"
+
+# =============================================================================
+# host preflight — architecture + memory (before any questions)
+# =============================================================================
+# Two "you're stepping over a real line" gates. Both STOP by default (an override
+# that needs no action isn't a conscious choice) but hand over an env skip for
+# unattended runs. The RAM advisories in the middle bands only steer a choice, so
+# they print and move on.
+ARCH="$(uname -m)"
+case "$ARCH" in
+  x86_64|amd64) : ;;                              # supported
+  *)
+    if [[ "${AFTERE_ALLOW_ARCH:-0}" == 1 ]]; then
+      warn "architecture $ARCH is unsupported; continuing (AFTERE_ALLOW_ARCH=1)."
+    else
+      echo
+      echo "  After-e- is only tested on x86; other architectures such as ARM may work,"
+      echo "  but testing is only done on x86. You can continue at your own risk."
+      echo "    1) Continue on ARM anyway"
+      echo "    2) Stop"
+      read -r -p "  choice [1-2]: " _arch < /dev/tty
+      [[ "$_arch" == 1 ]] || die "stopped — not an x86 machine. (Set AFTERE_ALLOW_ARCH=1 to skip this prompt.)"
+      warn "continuing on unsupported architecture ($ARCH) at your request."
+    fi ;;
+esac
+
+MEM_KB="$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null || echo 0)"
+MEM_GB=$(( (MEM_KB + 524288) / 1048576 ))        # round to nearest GiB for display
+if (( MEM_KB > 0 )); then
+  if (( MEM_KB < 3800000 )); then                # under ~4 GB — override gate
+    if [[ "${AFTERE_ALLOW_LOWRAM:-0}" == 1 ]]; then
+      warn "low memory (${MEM_GB} GB); continuing (AFTERE_ALLOW_LOWRAM=1)."
+    else
+      echo
+      echo "  This machine has about ${MEM_GB} GB of RAM. after-e- runs several database"
+      echo "  instances and is very likely to hit stability problems with this little memory."
+      echo "  We won't stop you, but you should seriously consider adding RAM to this VM or VPS"
+      echo "  before going further."
+      echo "    1) Install anyway"
+      echo "    2) Stop"
+      read -r -p "  choice [1-2]: " _ram < /dev/tty
+      [[ "$_ram" == 1 ]] || die "stopped — add RAM and re-run. (Set AFTERE_ALLOW_LOWRAM=1 to skip this prompt.)"
+      warn "continuing with low memory (${MEM_GB} GB) at your request."
+    fi
+  elif (( MEM_KB < 7500000 )); then              # ~4–8 GB — advisory
+    step "Memory"
+    echo "  ${MEM_GB} GB of RAM. Enough for a good setup, but Immich (photos) is the"
+    echo "  memory-hungry piece — the “/e/Cloud Server Replacement” or “File Sync Only” tiers leave it out."
+  elif (( MEM_KB < 15000000 )); then             # ~8–16 GB — advisory
+    step "Memory"
+    echo "  ${MEM_GB} GB of RAM. Plenty for the full Kitchen Sink — just go easy on the heavier"
+    echo "  post-install extras."
+  else                                           # 16 GB+ — advisory
+    step "Memory"
+    echo "  ${MEM_GB} GB of RAM. Room for everything — install whatever you like."
+  fi
+fi
+
 
 # --- base packages -----------------------------------------------------------
 step "Installing base tooling"

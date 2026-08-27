@@ -1,6 +1,6 @@
-# after/e/ — Architecture
+# after-e- — Architecture
 
-**after/e/** is a self-hosted personal-cloud stack: a coordinated deployment of
+**after-e-** is a self-hosted personal-cloud stack: a coordinated deployment of
 Authentik, Nextcloud, Stalwart, Immich, Vaultwarden, and a webmail client, glued
 together with an installer and a set of lifecycle scripts. It is a spiritual
 successor to the `/e/Cloud` self-hosting stack — a departure from it, not a fork
@@ -212,7 +212,7 @@ glue does.
 ### Stalwart uses Authentik as an external directory
 
 Stalwart can run an internal directory (it owns accounts) or an external one
-(LDAP/OIDC/SQL). after/e/ uses **external LDAP against Authentik's outpost**, which
+(LDAP/OIDC/SQL). after-e- uses **external LDAP against Authentik's outpost**, which
 makes Authentik authoritative for account existence, login name, primary address,
 aliases, group membership, and authentication.
 
@@ -347,7 +347,7 @@ preflight must require: `DNS gate = f(cert_mode, mail_mode)`.
 
 ## DNS is two-phase
 
-`/e/Cloud` shows the operator one DNS table up front. after/e/ cannot, because DKIM
+`/e/Cloud` shows the operator one DNS table up front. after-e- cannot, because DKIM
 keys do not exist until the mail domain is created — which happens after the stack
 is running. DNS is therefore split across the install/postinstall seam:
 
@@ -568,7 +568,7 @@ Named explicitly so their absence is a decision, not an oversight:
 
 ## Maintenance posture
 
-after/e/ is published as a **reference implementation structured to become
+after-e- is published as a **reference implementation structured to become
 maintainable** — a snapshot that others can fork and run, built with the discipline
 (version pins, changelog, clean template separation, this document) that would let
 it become a maintained project without a rewrite if it gains traction. It does not
@@ -605,7 +605,7 @@ A gift to the next maintainer — the things most likely to cost an afternoon:
 
 ## Provenance and licensing
 
-after/e/ is released under **GPLv3**. This is the deliberate choice, not a default:
+after-e- is released under **GPLv3**. This is the deliberate choice, not a default:
 it is compatible with the parts of `/e/Cloud` this project structurally derives
 from (its `/e/Cloud` self-hosting scripts are GPLv3, and the questionnaire /
 answer-file mechanism here is adapted from them), and it is congenial to the

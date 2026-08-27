@@ -1,5 +1,5 @@
 # =============================================================================
-# after/e/ blueprint — groups
+# after-e- blueprint — groups
 # =============================================================================
 # aftere-users : every provisioned end user (drives app access + LDAP search).
 # aftere-admins: elevated; is_superuser in Authentik.

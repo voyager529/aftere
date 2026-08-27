@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# after/e/ — common.sh   (sourced by every script; not run directly)
+# after-e- — common.sh   (sourced by every script; not run directly)
 # =============================================================================
 # Single source of truth for: repo location, output helpers, config reading,
 # the hostname model (list + nginx upstream map), image-tag preflight, and the
@@ -74,6 +74,16 @@ active_hosts() {
     printf '%s\n' "mail.$domain" "stalwart.$domain" "webmail.$domain" \
                   "autoconfig.$domain" "autodiscover.$domain" "mta-sts.$domain"
   fi
+}
+
+# all_hosts <domain> — every hostname ANY tier could use, ignoring profiles.
+# dns-setup uses this so the advisory always shows mail./webmail./etc. (the ones
+# that gate cert issuance) even when run before init sets COMPOSE_PROFILES.
+all_hosts() {
+  local domain="$1"
+  printf '%s\n' "$domain" "auth.$domain" "immich.$domain" "vault.$domain" \
+                 "mail.$domain" "stalwart.$domain" "webmail.$domain" \
+                 "autoconfig.$domain" "autodiscover.$domain" "mta-sts.$domain"
 }
 
 # host_upstream <host> <domain> — nginx target for a hostname:

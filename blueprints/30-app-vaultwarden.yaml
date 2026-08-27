@@ -1,5 +1,5 @@
 # =============================================================================
-# after/e/ blueprint — Vaultwarden OIDC (built-in SSO)
+# after-e- blueprint — Vaultwarden OIDC (built-in SSO)
 # =============================================================================
 # Uses Vaultwarden's native SSO (1.32+). The callback is /identity/connect/
 # oidc-signin on the vault subdomain. Vaultwarden SSO also requires server-side

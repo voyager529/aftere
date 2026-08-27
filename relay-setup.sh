@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# after/e/ — relay-setup.sh   (outbound mail via an authenticated SMTP relay)
+# after-e- — relay-setup.sh   (outbound mail via an authenticated SMTP relay)
 # =============================================================================
 # Owns the ENTIRE interactive relay flow; init.sh only records the decision in
 # MAIL_OUTBOUND_MODE. Vendor-neutral — every provider is host / port / user /
@@ -190,7 +190,7 @@ else
     step "Submitting a test via Stalwart submission (127.0.0.1:587 STARTTLS)"
     if swaks --server 127.0.0.1 --port 587 -tls --auth --auth-user "$SENDER" --auth-password "$SPASS" \
          --from "$SENDER" --to "$RCPT" \
-         --header "Subject: after/e/ relay test" --body "Relay test from after/e/." \
+         --header "Subject: after-e- relay test" --body "Relay test from after-e-." \
          >"/tmp/aftere-send.$$" 2>&1; then
       ok "Stalwart accepted the message for delivery"
     else
@@ -223,4 +223,4 @@ echo "  Relay route ${RELAY_HOST}:${RELAY_PORT} applied; Stalwart reloaded."
 echo "  DNS: publish your relay's SENDING records (SPF include + DKIM) from the provider"
 echo "  dashboard; keep your root MX on Stalwart (never the relay); start DMARC at p=none."
 echo
-echo "  Next: if you haven't yet, configure Nextcloud login:  sudo bash postinstall-nextcloud.sh"
+echo "  Next: if you haven't yet, configure Nextcloud login:  sudo bash nextcloud-provision.sh"

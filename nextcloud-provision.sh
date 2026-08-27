@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# after-e- — postinstall-nextcloud.sh   (rev 2)
+# after-e- — nextcloud-provision.sh   (rev 2)
 # =============================================================================
 # Brings a fresh Nextcloud to the proven 0820 state, headless:
 #   1. Install NC non-interactively (admin auto-created; NO exposed web wizard)
@@ -14,7 +14,7 @@
 #     (init.sh currently doesn't render those into .env — build-17 fix noted)
 #
 # Idempotent + re-runnable. Run from repo root (next to .env):
-#   sudo bash postinstall-nextcloud.sh
+#   sudo bash nextcloud-provision.sh
 # -----------------------------------------------------------------------------
 # DEFERRED (need their own capture): External Sites launcher tiles, Theming
 # brand, and new-user.sh's "provision without first login" hook.
@@ -39,7 +39,7 @@ NC_ADMIN_PW="$(getenv NEXTCLOUD_ADMIN_PASSWORD)"
 
 occ() { docker compose exec -T -u www-data nextcloud php occ "$@"; }
 say() { printf '\n==> %s\n' "$*"; }
-gen() { LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c 24; }
+gen() { LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c 24 || true; }
 
 # =============================================================================
 # 1. HEADLESS INSTALL  (closes the "first visitor to the wizard becomes admin"
@@ -87,7 +87,7 @@ occ config:system:set overwriteprotocol --value=https
 occ config:system:set overwritehost     --value="$DOMAIN"
 occ config:system:set overwrite.cli.url --value="https://$DOMAIN"
 occ config:system:set trusted_proxies 0 --value="172.16.0.0/12"   # tighten to your proxy subnet for prod
-occ config:system:set trusted_domains 0 --value="$DOMAIN"
+occ config:system:set trusted_domains 1 --value="$DOMAIN"   # index 1: keep localhost at 0 for internal/CLI checks
 
 # =============================================================================
 # 3. LDAP  (captured from 0820 — group-gated, uid-pinned)

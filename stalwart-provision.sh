@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# after/e/ — stalwart-provision.sh   (v0.16 / stalwart-cli 1.0.x)
+# after-e- — stalwart-provision.sh   (v0.16 / stalwart-cli 1.0.x)
 # =============================================================================
 # MODEL (corrected): on a FRESH data store, Stalwart self-initializes out of
 # bootstrap mode on its own — no bootstrap object to apply, no restart. The
@@ -88,6 +88,18 @@ stalwart-cli apply --file "$RENDERED" \
   || die "apply failed — see output. Fix the plan and re-run (apply is idempotent)."
 ok "domain, LDAP directory, and auth wiring applied"
 
+# --- trust the internal proxy network (roundcube -> submission, etc.) ----------
+# Stalwart treats AllowedIp addresses as local/trusted. The proxy subnet is pinned
+# in docker-compose.yml (networks.proxy.ipam) — this MUST match it. Idempotent.
+PROXY_SUBNET="172.20.0.0/16"
+if stalwart-cli query AllowedIp 2>/dev/null | grep -q "$PROXY_SUBNET"; then
+  ok "AllowedIp ${PROXY_SUBNET} already present"
+else
+  stalwart-cli create AllowedIp --field "address=${PROXY_SUBNET}" >/dev/null 2>&1 \
+    && ok "trusted internal subnet ${PROXY_SUBNET} (AllowedIp)" \
+    || warn "could not add AllowedIp ${PROXY_SUBNET} — internal submission may be rejected; add it manually."
+fi
+
 # --- SystemSettings: hostname + default domain (read-back, not #-ref) ---------
 # defaultDomainId needs the Domain's REAL id; the plan-local "#key" ref does not
 # resolve for this field (it silently no-ops). So read the id back from the live
@@ -160,6 +172,16 @@ done
 step "DKIM"
 warn "Domain uses Automatic DKIM — keys are generated server-side."
 warn "Publish the public key as a DNS TXT record (read it from the Stalwart admin API/UI)."
+
+# --- DNS zone (direct send only) ---------------------------------------------
+# With a relay, SPF/DKIM point at the RELAY (relay-setup.sh covers that). For
+# direct-to-MX send, the operator must publish this VM's own records — dump the
+# zone file so they know exactly what to add. Non-fatal (field name may vary).
+if [[ "$(getcfg MAIL_OUTBOUND_MODE 2>/dev/null)" != relay ]]; then
+  step "DNS records to publish (direct send)"
+  stalwart-cli get Domain "$DID" --fields dnsZoneFile \
+    || warn "couldn't read the DNS zone from Stalwart — check the admin UI (Domains -> ${AFTERE_DOMAIN} -> DNS)."
+fi
 
 step "Done"
 printf '\n  %sOpen these inbound ports in your cloud firewall / NSG%s (mail clients + the\n' "${c_warn:-}" "${c_end:-}"

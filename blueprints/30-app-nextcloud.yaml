@@ -1,5 +1,5 @@
 # =============================================================================
-# after/e/ blueprint — Nextcloud OIDC
+# after-e- blueprint — Nextcloud OIDC
 # =============================================================================
 # Redirect URI assumes the official `user_oidc` Nextcloud app. If postinstall
 # installs `oidc_login` instead, the URI changes to /apps/oidc_login/oidc —

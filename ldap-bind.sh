@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# after/e/ — ldap-bind.sh
+# after-e- — ldap-bind.sh
 # =============================================================================
 # The aftere-ldap-bind service account (created by 20-ldap.yaml) needs an
 # app-password for Stalwart to bind with. Like the outpost token, the key is

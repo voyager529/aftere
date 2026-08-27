@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# after/e/ — ldap-token.sh
+# after-e- — ldap-token.sh
 # =============================================================================
 # Authentik doesn't let you set an outpost's token (issue #9711). The outpost's
 # token is auto-generated when the blueprint creates the outpost. This reads

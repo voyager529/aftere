@@ -1,5 +1,5 @@
 # =============================================================================
-# after/e/ blueprint — LDAP provider + application + outpost
+# after-e- blueprint — LDAP provider + application + outpost
 # =============================================================================
 # Turns authentik-ldap healthy. Kept deliberately minimal after two bugs in the
 # earlier version:
@@ -73,7 +73,7 @@ entries:
     identifiers:
       slug: aftere-ldap
     attrs:
-      name: "after/e/ LDAP Directory"
+      name: "after-e- LDAP Directory"
       provider: !KeyOf aftere-ldap-provider
       policy_engine_mode: any
 
@@ -141,7 +141,7 @@ entries:
     identifiers:
       username: aftere-ldap-bind
     attrs:
-      name: "after/e/ LDAP bind service account"
+      name: "after-e- LDAP bind service account"
       type: service_account
       path: users
       ak_groups:

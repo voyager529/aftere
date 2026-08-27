@@ -1,5 +1,5 @@
 # =============================================================================
-# after/e/ blueprint — custom OIDC scope mappings
+# after-e- blueprint — custom OIDC scope mappings
 # =============================================================================
 # As of Authentik 2025.10 the default `email` scope sets email_verified=FALSE,
 # and several apps (notably Nextcloud) refuse to authenticate a user whose
@@ -24,7 +24,7 @@ entries:
       name: "aftere email (verified=true)"
     attrs:
       scope_name: email
-      description: "Email claim with email_verified forced true (after/e/)"
+      description: "Email claim with email_verified forced true (after-e-)"
       expression: |
         return {
             "email": request.user.email,

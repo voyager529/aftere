@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# after/e/ — init.sh   (Phase 1)   [THIRD DRAFT]
+# after-e- — init.sh   (Phase 1)   [THIRD DRAFT]
 # =============================================================================
 # Bare host -> stack running over HTTPS. Input gathered up front (resumable
 # answer file), secrets generated once, validated at load, fail-fast.
@@ -24,65 +24,6 @@ export AFTERE_WARN_LOG="$REPO_BASE/.aftere-run-warnings"
 command -v docker >/dev/null 2>&1 || die "docker not found (run prereqs.sh)."
 docker compose version >/dev/null 2>&1 || die "compose plugin missing (run prereqs.sh)."
 command -v envsubst >/dev/null 2>&1 || die "envsubst missing (run prereqs.sh)."
-
-# =============================================================================
-# host preflight — architecture + memory (before any questions)
-# =============================================================================
-# Two "you're stepping over a real line" gates. Both STOP by default (an override
-# that needs no action isn't a conscious choice) but hand over an env skip for
-# unattended runs. The RAM advisories in the middle bands only steer a choice, so
-# they print and move on.
-ARCH="$(uname -m)"
-case "$ARCH" in
-  x86_64|amd64) : ;;                              # supported
-  *)
-    if [[ "${AFTERE_ALLOW_ARCH:-0}" == 1 ]]; then
-      warn "architecture $ARCH is unsupported; continuing (AFTERE_ALLOW_ARCH=1)."
-    else
-      echo
-      echo "  This looks like an ARM machine, not x86 ($ARCH). after/e/ isn't tested on ARM"
-      echo "  and support requests for it won't be answered — and the upstream projects it"
-      echo "  relies on have inconsistent ARM support, so failures are likely. You can override"
-      echo "  and install anyway, but you're on your own here."
-      echo "    1) Continue on ARM anyway"
-      echo "    2) Stop"
-      read -r -p "  choice [1-2]: " _arch < /dev/tty
-      [[ "$_arch" == 1 ]] || die "stopped — not an x86 machine. (Set AFTERE_ALLOW_ARCH=1 to skip this prompt.)"
-      warn "continuing on unsupported architecture ($ARCH) at your request."
-    fi ;;
-esac
-
-MEM_KB="$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null || echo 0)"
-MEM_GB=$(( (MEM_KB + 524288) / 1048576 ))        # round to nearest GiB for display
-if (( MEM_KB > 0 )); then
-  if (( MEM_KB < 3800000 )); then                # under ~4 GB — override gate
-    if [[ "${AFTERE_ALLOW_LOWRAM:-0}" == 1 ]]; then
-      warn "low memory (${MEM_GB} GB); continuing (AFTERE_ALLOW_LOWRAM=1)."
-    else
-      echo
-      echo "  This machine has about ${MEM_GB} GB of RAM. after/e/ runs several database"
-      echo "  instances and is very likely to hit stability problems with this little memory."
-      echo "  We won't stop you, but you should seriously consider adding RAM to this VM or VPS"
-      echo "  before going further."
-      echo "    1) Install anyway"
-      echo "    2) Stop"
-      read -r -p "  choice [1-2]: " _ram < /dev/tty
-      [[ "$_ram" == 1 ]] || die "stopped — add RAM and re-run. (Set AFTERE_ALLOW_LOWRAM=1 to skip this prompt.)"
-      warn "continuing with low memory (${MEM_GB} GB) at your request."
-    fi
-  elif (( MEM_KB < 7500000 )); then              # ~4–8 GB — advisory
-    step "Memory"
-    echo "  ${MEM_GB} GB of RAM. Enough for a good setup, but Immich (photos) is the"
-    echo "  memory-hungry piece — you'll have a smoother time with tier 3 or 4, which leave it out."
-  elif (( MEM_KB < 15000000 )); then             # ~8–16 GB — advisory
-    step "Memory"
-    echo "  ${MEM_GB} GB of RAM. Plenty for the full Kitchen Sink — just go easy on the heavier"
-    echo "  post-install extras."
-  else                                           # 16 GB+ — advisory
-    step "Memory"
-    echo "  ${MEM_GB} GB of RAM. Room for everything — install whatever you like."
-  fi
-fi
 
 # =============================================================================
 # resume gate — a prior run left answers behind
@@ -268,17 +209,28 @@ fi
 # 9 — tier
 QN=$((QN+1)); predraw
 echo "  All tiers include Nginx, Authentik, CrowdSec, and Nextcloud. Tiers add:"
-echo "    Kitchen Sink          (+ Mail [Stalwart + Roundcube], Photos [Immich], Vaultwarden)"
-echo "    Everything but Mail   (+ Photos [Immich], Vaultwarden)"
-echo "    NC Handles My Photos  (+ Mail [Stalwart + Roundcube], Vaultwarden; photos live in Nextcloud)"
-echo "    File Sync Only        (just the always-on core — files, calendar, contacts)"
-ask_choice AFTERE_TIER "Which tier?" "Kitchen Sink" "Everything but Mail" "NC Handles My Photos" "File Sync Only"
+echo "    Kitchen Sink                (+ Mail [Stalwart + Roundcube], Photos [Immich], Vaultwarden)"
+echo "    /e/Cloud Server Replacement (+ Mail [Stalwart + Roundcube]; photos live in Nextcloud)"
+echo "    Everything but Mail         (+ Photos [Immich], Vaultwarden)"
+echo "    File Sync Only              (just the always-on core — files, calendar, contacts)"
+ask_choice AFTERE_TIER "Which tier?" "Kitchen Sink" "/e/Cloud Server Replacement" "Everything but Mail" "File Sync Only"
 case "$(answer_get AFTERE_TIER)" in
-  "Kitchen Sink")         PROFILES="mail,photos,vault" ;;
-  "Everything but Mail")  PROFILES="photos,vault" ;;
-  "NC Handles My Photos") PROFILES="mail,vault" ;;
-  "File Sync Only")       PROFILES="" ;;
+  "Kitchen Sink")                PROFILES="mail,photos,vault" ;;
+  "/e/Cloud Server Replacement") PROFILES="mail" ;;
+  "Everything but Mail")         PROFILES="photos,vault" ;;
+  "File Sync Only")              PROFILES="" ;;
 esac
+# The /e/Cloud server ships no password manager. Offer Vaultwarden as an explicit
+# opt-in for this tier only; parity (no vault) is the "No" option.
+if [[ "$(answer_get AFTERE_TIER)" == "/e/Cloud Server Replacement" ]]; then
+  predraw
+  echo "  The /e/Cloud server has no built-in password manager. after-e- can add"
+  echo "  Vaultwarden (Bitwarden-compatible) if you want one."
+  ask_yesno AFTERE_ADD_VAULT "Add Vaultwarden for password management?" \
+    "Yes — add Vaultwarden" \
+    "No — keep parity with the /e/Cloud server"
+  [[ "$(answer_get AFTERE_ADD_VAULT)" == yes ]] && PROFILES="${PROFILES:+$PROFILES,}vault"
+fi
 answer_set COMPOSE_PROFILES "$PROFILES"
 
 # --- port 25 conflict check (mail tier only) --------------------------------
@@ -409,7 +361,7 @@ if [[ ",$PROFILES," == *",mail,"* ]]; then
   if [[ -z "$(answer_get MAIL_OUTBOUND_MODE_CHOICE)" ]]; then
     predraw
     echo "  Outbound email: we recommend a relay (Mailgun, SMTP2GO, Mailjet) for reliable delivery."
-    echo "  after/e/ can send without one, but even if your host doesn't block port 25 (most do),"
+    echo "  after-e- can send without one, but even if your host doesn't block port 25 (most do),"
     echo "  your mail will very likely be flagged as spam by the recipient's server."
   fi
   ask_choice MAIL_OUTBOUND_MODE_CHOICE "Use a relay, or send directly from the server?" \
@@ -496,6 +448,7 @@ gen_secret AUTHENTIK_SECRET_KEY 60; gen_secret AUTHENTIK_BOOTSTRAP_PASSWORD 24; 
 gen_secret VAULTWARDEN_ADMIN_TOKEN 40
 gen_secret OIDC_NEXTCLOUD_SECRET 50; gen_secret OIDC_IMMICH_SECRET 50; gen_secret OIDC_VAULTWARDEN_SECRET 50
 gen_secret LDAP_BIND_PASSWORD 40
+gen_secret NEXTCLOUD_ADMIN_PASSWORD 24; gen_secret OIDC_ROUNDCUBE_SECRET 50
 gen_secret STALWART_RECOVERY_PW 24
 ok "secrets present"
 
@@ -592,7 +545,7 @@ RC_TLS="$CONFIG_PATH/roundcube/aftere-tls.inc.php"
 if [[ ! -f "$RC_TLS" ]]; then
   cat > "$RC_TLS" <<'PHP'
 <?php
-// after/e/: relaxed TLS verify for the INTERNAL webmail->Stalwart hop only.
+// after-e-: relaxed TLS verify for the INTERNAL webmail->Stalwart hop only.
 $config['imap_conn_options'] = ['ssl' => ['verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true]];
 $config['smtp_conn_options'] = ['ssl' => ['verify_peer' => false, 'verify_peer_name' => false, 'allow_self_signed' => true]];
 PHP
@@ -762,7 +715,7 @@ _is_staging=no;  [[ "$(getcfg AFTERE_CERT_STAGING)" == Staging* ]] && _is_stagin
 cat <<EOF
 
   Reachable now (HTTPS on the serving domain, ${DOMAIN}):
-    https://$DOMAIN            Nextcloud (auto-installed; run postinstall-nextcloud.sh for login)
+    https://$DOMAIN            Nextcloud (auto-installed; run nextcloud-provision.sh for login)
     https://auth.$DOMAIN       Authentik  (login: akadmin or your admin email + the password above)
 $( [[ ",$PROFILES," == *",vault,"* ]]  && echo "    https://vault.$DOMAIN      Vaultwarden" )
 $( [[ ",$PROFILES," == *",photos,"* ]] && echo "    https://immich.$DOMAIN     Immich" )
@@ -782,7 +735,7 @@ if [[ "$_has_mail" == yes ]]; then
   if [[ "$_has_relay" == yes ]]; then
     echo "    ${_n}. Turn on outbound relay:  sudo bash relay-setup.sh"; _n=$((_n+1))
   fi
-  echo "    ${_n}. Configure Nextcloud (proxy + LDAP login + apps):  sudo bash postinstall-nextcloud.sh"; _n=$((_n+1))
+  echo "    ${_n}. Configure Nextcloud (proxy + LDAP login + apps):  sudo bash nextcloud-provision.sh"; _n=$((_n+1))
   echo "    ${_n}. Create your first user:  sudo bash new-user.sh"; _n=$((_n+1))
   echo "    ${_n}. Try it out — sign in at https://$DOMAIN, and webmail at https://webmail.$DOMAIN."
 else
@@ -796,7 +749,7 @@ if [[ "$_has_mail" == yes && "$_has_relay" == yes ]]; then
 fi
 [[ "$_is_staging" == yes ]] && \
   echo "  Once everything looks right, swap your staging certs for real ones:  sudo STAGING=0 bash cert-http.sh"
-echo "  Nextcloud login (LDAP) is set up by postinstall-nextcloud.sh above. Immich / Vault OIDC tiles are still in progress."
+echo "  Nextcloud login (LDAP) is set up by nextcloud-provision.sh above. Immich / Vault OIDC tiles are still in progress."
 
 # ---- warnings roll-up ------------------------------------------------------
 if [[ -s "$AFTERE_WARN_LOG" ]]; then

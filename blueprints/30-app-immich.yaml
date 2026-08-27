@@ -1,5 +1,5 @@
 # =============================================================================
-# after/e/ blueprint — Immich OIDC
+# after-e- blueprint — Immich OIDC
 # =============================================================================
 # Immich needs several redirect URIs: the web callback, the user-settings page,
 # and the MOBILE app scheme (app.immich:///oauth-callback) or phone logins fail.

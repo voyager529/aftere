@@ -1,4 +1,4 @@
-# after/e/ — QA run bundle
+# after-e- — QA run bundle
 
 Snapshot of the current script iterations for a fresh-VM QA deployment.
 
