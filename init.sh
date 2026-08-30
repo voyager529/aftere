@@ -61,7 +61,7 @@ touch "$ANSWER_FILE"; chmod 600 "$ANSWER_FILE"
 # ends at QMAX on every path (the bar always reaches 100%). The bar is drawn
 # only when a question is actually prompted (skipped/cached ones tick silently).
 QN=0
-QMAX=15          # number of question sites below — keep in sync (asserted at end)
+QMAX=17          # number of question sites below — keep in sync (asserted at end)
 
 draw_bar() {
   # if a question pre-drew the bar (so its description sits below the bar),
@@ -360,9 +360,15 @@ QN=$((QN+1))
 if [[ ",$PROFILES," == *",mail,"* ]]; then
   if [[ -z "$(answer_get MAIL_OUTBOUND_MODE_CHOICE)" ]]; then
     predraw
-    echo "  Outbound email: we recommend a relay (Mailgun, SMTP2GO, Mailjet) for reliable delivery."
-    echo "  after-e- can send without one, but even if your host doesn't block port 25 (most do),"
-    echo "  your mail will very likely be flagged as spam by the recipient's server."
+    echo "  Outbound email: Many cloud providers (AWS, Azure, Digital Ocean, Linode,"
+    echo "  and others) have their entire IP ranges blocked by most mail filters. Many"
+    echo "  of them also block sending mail by default. Residential ISPs are usually 
+    echo "  subject to both limits. Hetzner and OVA are" better choices if you'd like to"
+    echo "  send mail directly, but an alternative solution is to use a relay service like"
+    echo "  Mailgun, SMTP2Go, Resend, or Mailjet. These services reduce privacy because all"
+    echo "  your sent mail flows through them, but the tradeoff is that your email will be"
+    echo "  more likely to successfully reach your recipients, and all have free tiers if"
+    echo "  you send less than 1,000 emails a month from your server."
   fi
   ask_choice MAIL_OUTBOUND_MODE_CHOICE "Use a relay, or send directly from the server?" \
     "Relay (recommended)" "Direct send"
@@ -413,6 +419,46 @@ else
   warn "They're emergency-only; postinstall will show them fenced — store them OFF this box."
 fi
 
+# 20 — Dockhand (optional Docker management UI)
+QN=$((QN+1)); predraw
+echo "  after-e- is a dozen-odd containers. Dockhand is a web UI for managing them"
+echo "  — start/stop, logs, redeploy — without living in the shell."
+echo
+echo "  It needs the Docker socket, which makes it root-equivalent on this box, and"
+echo "  it can read this stack's .env. It is published on localhost only either way."
+ask_yesno AFTERE_DOCKHAND "Install Dockhand for Docker management?" \
+  "Yes — install the management UI" \
+  "No — I'll use the docker CLI"
+if [[ "$(answer_get AFTERE_DOCKHAND)" == yes ]]; then
+  PROFILES="${PROFILES:+$PROFILES,}dockhand"
+  answer_set COMPOSE_PROFILES "$PROFILES"
+fi
+
+# 21 — how Dockhand is reached (only meaningful if it's installed)
+QN=$((QN+1))
+if [[ "$(answer_get AFTERE_DOCKHAND)" == yes ]]; then
+  predraw
+  echo "  How do you want to reach it?"
+  echo
+  echo "    A vhost gives it HTTPS and puts its requests in nginx's logs, which is"
+  echo "    what CrowdSec watches — but it needs one more DNS record before certs"
+  echo "    are issued (dockhand.$DOMAIN, a CNAME to $DOMAIN)."
+  echo
+  echo "    A tunnel needs no DNS and no open port: ssh -L 3000:127.0.0.1:3000"
+  echo "    to this box, then browse http://localhost:3000."
+  ask_yesno AFTERE_DOCKHAND_VHOST "Publish Dockhand at a hostname?" \
+    "Yes — serve it at https://dockhand.$DOMAIN" \
+    "No — I'll reach it over an SSH tunnel"
+  if [[ "$(answer_get AFTERE_DOCKHAND_VHOST)" == yes ]]; then
+    # marker profile: carries the choice into active_hosts() so the DNS gate and
+    # cert-http's SAN list both pick the hostname up. Declares no service.
+    PROFILES="${PROFILES:+$PROFILES,}dockhand-vhost"
+    answer_set COMPOSE_PROFILES "$PROFILES"
+  fi
+else
+  answer_set AFTERE_DOCKHAND_VHOST no
+fi
+
 # progress sanity (dev): QN must equal QMAX on every path
 (( QN == QMAX )) || warn "progress counter drift: ended at $QN/$QMAX (harmless; fix QMAX)."
 
@@ -437,7 +483,7 @@ if [[ -f "$ENV_FILE" ]]; then
             AUTHENTIK_SECRET_KEY AUTHENTIK_BOOTSTRAP_PASSWORD AUTHENTIK_BOOTSTRAP_TOKEN \
             AUTHENTIK_LDAP_TOKEN VAULTWARDEN_ADMIN_TOKEN \
             OIDC_NEXTCLOUD_SECRET OIDC_IMMICH_SECRET OIDC_VAULTWARDEN_SECRET OIDC_ROUNDCUBE_SECRET NEXTCLOUD_ADMIN_PASSWORD \
-            LDAP_BIND_PASSWORD STALWART_RECOVERY_PW; do
+            LDAP_BIND_PASSWORD STALWART_RECOVERY_PW DOCKHAND_ADMIN_PASSWORD; do
     _v="$(getcfg "$_k" 2>/dev/null || true)"
     if [[ -n "$_v" && -z "$(answer_get "$_k")" ]]; then answer_set "$_k" "$_v"; _frozen=$((_frozen+1)); fi
   done
@@ -450,6 +496,8 @@ gen_secret OIDC_NEXTCLOUD_SECRET 50; gen_secret OIDC_IMMICH_SECRET 50; gen_secre
 gen_secret LDAP_BIND_PASSWORD 40
 gen_secret NEXTCLOUD_ADMIN_PASSWORD 24; gen_secret OIDC_ROUNDCUBE_SECRET 50
 gen_secret STALWART_RECOVERY_PW 24
+# alphanumeric by default, which also keeps it JSON-safe for the bootstrap POST
+gen_secret DOCKHAND_ADMIN_PASSWORD 24
 ok "secrets present"
 
 # =============================================================================
@@ -468,6 +516,9 @@ step "Rendering ${ENV_FILE}"
   echo "TZ=${TZ:-Etc/UTC}"; echo "PUID=1000"; echo "PGID=1000"
   echo "COMPOSE_PROFILES=$(answer_get COMPOSE_PROFILES)"
   echo "AFTERE_IMMICH_ML=$(answer_get AFTERE_IMMICH_ML)"
+  echo "AFTERE_REPO=$REPO_BASE"                      # dockhand mounts this checkout
+  echo "AFTERE_DOCKHAND=$(answer_get AFTERE_DOCKHAND)"
+  echo "AFTERE_DOCKHAND_VHOST=$(answer_get AFTERE_DOCKHAND_VHOST)"
   echo "AFTERE_IMMICH_MAP=$(answer_get AFTERE_IMMICH_MAP)"
   echo "AFTERE_IMMICH_RELEASECHECK=$(answer_get AFTERE_IMMICH_RELEASECHECK)"
   echo "MAIL_OUTBOUND_MODE=$MAILMODE"
@@ -476,7 +527,7 @@ step "Rendering ${ENV_FILE}"
            PG_AUTHENTIK_PASSWORD PG_NEXTCLOUD_PASSWORD PG_IMMICH_PASSWORD \
            AUTHENTIK_SECRET_KEY AUTHENTIK_BOOTSTRAP_PASSWORD AUTHENTIK_BOOTSTRAP_TOKEN AUTHENTIK_LDAP_TOKEN \
            VAULTWARDEN_ADMIN_TOKEN OIDC_NEXTCLOUD_SECRET OIDC_IMMICH_SECRET OIDC_VAULTWARDEN_SECRET OIDC_ROUNDCUBE_SECRET NEXTCLOUD_ADMIN_PASSWORD \
-           LDAP_BIND_PASSWORD STALWART_RECOVERY_PW; do
+           LDAP_BIND_PASSWORD STALWART_RECOVERY_PW DOCKHAND_ADMIN_PASSWORD; do
     # single-quote so compose reads values literally (no $ / # interpolation).
     # generated secrets are alphanumeric; the relay password is validated below
     # to exclude ' (which compose's single-quoting cannot escape).
@@ -503,7 +554,7 @@ mkdir -p \
   "$CONFIG_PATH"/authentik/{db,media,templates,blueprints} \
   "$CONFIG_PATH"/{redis,nextcloud/db,nextcloud/html,stalwart/etc,roundcube,roundcube-db} \
   "$CONFIG_PATH"/immich/{db,ml-cache} \
-  "$CONFIG_PATH"/{vaultwarden,crowdsec/config,crowdsec/data} \
+  "$CONFIG_PATH"/{vaultwarden,crowdsec/config,crowdsec/data,dockhand,dns} \
   "$DATA_PATH"/{nextcloud,stalwart,immich}
 ok "directories ready"
 
@@ -513,6 +564,23 @@ ok "directories ready"
 # dir is owned by the container uid. (Discovered the hard way upgrading 0818 —
 # same wall hits fresh installs on 2026.5.) server + worker share this mount.
 chown -R 1000:1000 "$CONFIG_PATH/authentik/media" 2>/dev/null || true
+
+# Stalwart runs as uid 2000 and its RocksDB store needs to CREATE files (LOG
+# first of all) directly in the data mount. init.sh's mkdir tree makes everything
+# root-owned, so a fresh box crash-looped with:
+#   Failed to open database: IO error: ... /var/lib/stalwart//LOG: Permission denied
+# Same bug class as the Authentik media chown above — that one got fixed, this one
+# was missed. (0829 run.)
+if [[ -d "$DATA_PATH/stalwart" ]]; then
+  chown -R 2000:2000 "$DATA_PATH/stalwart" 2>/dev/null || true
+fi
+chown -R 2000:2000 "$CONFIG_PATH/stalwart" 2>/dev/null || true
+# Certs are renewed by cert-http.sh as root, so DON'T chown them — grant group
+# read instead, or renewal silently re-breaks Stalwart's TLS ~90 days later.
+if [[ -d "$CONFIG_PATH/certs" ]]; then
+  chgrp -R 2000 "$CONFIG_PATH/certs" 2>/dev/null || true
+  chmod -R g+rX "$CONFIG_PATH/certs" 2>/dev/null || true
+fi
 
 # --- Stalwart bootstrap pointer ----------------------------------------------
 # Stalwart v0.16 opens its setup wizard on any boot where it finds NO config
@@ -601,8 +669,55 @@ case "$(answer_get CERT_MODE)" in
 esac
 
 step "Generating nginx vhosts"
+# Without a default_server, nginx serves the FIRST-loaded vhost to any request
+# whose Host matches nothing — alphabetically that is auth.$DOMAIN, so a missing
+# vhost looks like "it redirected me to SSO" instead of like a missing vhost.
+# That cost real debugging time on the 0829 run. 444 closes the connection with
+# no response, which is also the right answer for bare-IP scanners.
+cat > "$CONFIG_PATH/nginx/conf.d/00-default.conf" <<'EOF'
+server {
+  listen 80 default_server;
+  listen 443 ssl default_server;
+  server_name _;
+  # self-signed placeholder: a default_server that listens on 443 still needs a
+  # cert loaded or nginx refuses to start. It is never presented for a real host.
+  ssl_certificate     /etc/nginx/certs/_default/fullchain.pem;
+  ssl_certificate_key /etc/nginx/certs/_default/privkey.pem;
+  # ACME must still work on the catch-all, or a first-issue for a host with no
+  # vhost yet would 444 its own challenge.
+  location /.well-known/acme-challenge/ { root /var/www/acme-challenge; }
+  location / { return 444; }
+}
+EOF
+# Lives under the certs mount, which nginx already has; the leading underscore
+# keeps it out of the way of real per-host cert dirs (LE never issues "_default").
+mkdir -p "$CONFIG_PATH/certs/_default"
+if [[ ! -f "$CONFIG_PATH/certs/_default/fullchain.pem" ]]; then
+  openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+    -subj "/CN=invalid" \
+    -keyout "$CONFIG_PATH/certs/_default/privkey.pem" \
+    -out    "$CONFIG_PATH/certs/_default/fullchain.pem" >/dev/null 2>&1 \
+    && ok "default_server catch-all generated (unmatched hosts get 444)" \
+    || { warn "could not generate the default_server cert — removing the catch-all."; rm -f "$CONFIG_PATH/nginx/conf.d/00-default.conf"; }
+fi
 render_vhost() {
-  local host="$1" up="$2" conf="$CONFIG_PATH/nginx/conf.d/$host.conf"
+  # BUILD 19b — the `conf=` assignment MUST be its own `local` statement.
+  # In a single `local a=$1 b=$a` the right-hand sides are all expanded BEFORE
+  # any assignment takes effect, so `$host` there resolved to the CALLER's
+  # `host`, not to `$1`. The main loop below is `while read -r host`, so during
+  # that loop the global happened to hold the right value and every filename came
+  # out correct by luck. The first caller outside the loop (the deferred dockhand
+  # vhost) got an empty global and wrote a file literally named ".conf" — while
+  # the heredoc body, expanded at run time against the real local, carried the
+  # correct server_name. Confirmed on bash 5.2.21.
+  local host="$1" up="$2"
+  local conf="$CONFIG_PATH/nginx/conf.d/$host.conf"
+  # Any future out-of-loop caller hits the same shape, so fail loudly instead of
+  # silently producing a stray dotfile in conf.d.
+  if [[ -z "$host" ]]; then
+    bad "render_vhost called with an empty hostname — refusing to write a vhost."
+    return 1
+  fi
   local cert="/etc/nginx/certs/$host/fullchain.pem" key="/etc/nginx/certs/$host/privkey.pem"
   if [[ "$up" == REDIRECT:* ]]; then
     local target="${up#REDIRECT:}"
@@ -649,6 +764,11 @@ EOF
 rendered=0
 while read -r host; do
   [[ -z "$host" ]] && continue
+  # dockhand's vhost is deliberately held back: it is written only after the
+  # bootstrap below has created the admin and switched auth ON. Until then the
+  # panel is loopback-only, so a failed/aborted bootstrap can never leave an
+  # unauthenticated docker.sock UI exposed on a public hostname.
+  [[ "$host" == "dockhand.$DOMAIN" ]] && continue
   if [[ -f "$CONFIG_PATH/certs/$host/fullchain.pem" ]]; then
     render_vhost "$host" "$(host_upstream "$host" "$DOMAIN")"; rendered=$((rendered+1))
     ok "vhost: $host -> $(host_upstream "$host" "$DOMAIN")"
@@ -685,6 +805,104 @@ else
   warn "nginx config test failed — inspect: docker compose exec nginx nginx -t"
 fi
 
+# =============================================================================
+# Dockhand bootstrap (fail-closed)
+# =============================================================================
+# Order matters. The panel starts with authentication OFF — that is how the
+# product ships — so every call below runs against an unauthenticated API. It is
+# safe here ONLY because the port is bound to 127.0.0.1 and we are calling from
+# the host itself; nothing off-box can reach it during this window.
+#
+# Sequence: wait for real JSON -> environment -> adopt stack -> create admin ->
+# turn auth ON -> PROVE it is on by making an unauthenticated call that must now
+# be rejected. If any step fails we stop the container rather than leave a
+# half-configured panel running, and the vhost is never written.
+#
+# VERIFY AT QA: every endpoint and payload here comes from the contributor's PoC
+# against :latest. None of it has been exercised by us. Confirm the shapes (and
+# pin DOCKHAND_IMAGE) on a QA box before this is trusted.
+if [[ "$(answer_get AFTERE_DOCKHAND)" == yes ]]; then
+  step "Bootstrapping Dockhand"
+  DH="http://127.0.0.1:3000"
+  DH_PW="$(answer_get DOCKHAND_ADMIN_PASSWORD)"
+  dh_fail() {
+    bad "Dockhand bootstrap failed: $1"
+    warn "stopping the container — a panel with auth off will not be left running."
+    docker compose stop dockhand >/dev/null 2>&1 || true
+    warn "Dockhand is NOT configured. The rest of the stack is unaffected; re-run"
+    warn "init.sh after checking: docker compose logs dockhand"
+    DOCKHAND_OK=no
+  }
+  DOCKHAND_OK=yes
+
+  # 1. readiness. The port answers before the app serves JSON (same race as
+  #    Authentik), so poll for a real response, not an open socket.
+  _ready=no
+  for _i in $(seq 1 60); do
+    if curl -fsS --max-time 3 "$DH/api/environments" >/dev/null 2>&1; then _ready=yes; break; fi
+    sleep 2
+  done
+  [[ "$_ready" == yes ]] || dh_fail "API never became ready on $DH (60 tries)"
+
+  # 2. environment for this host's local socket
+  if [[ "$DOCKHAND_OK" == yes ]]; then
+    curl -fsS --max-time 10 "$DH/api/environments" -X POST \
+      -H 'Content-Type: application/json' \
+      -d "{\"name\":\"$(hostname)\",\"connectionType\":\"socket\",\"socketPath\":\"/var/run/docker.sock\",\"icon\":\"server\"}" \
+      >/dev/null 2>&1 || dh_fail "could not create the environment"
+  fi
+
+  # 3. adopt this stack. The compose file lives at the mount point declared in
+  #    docker-compose.yml, NOT at the host path.
+  if [[ "$DOCKHAND_OK" == yes ]]; then
+    curl -fsS --max-time 10 "$DH/api/stacks/adopt" -X POST \
+      -H 'Content-Type: application/json' \
+      -d '{"stacks":[{"name":"aftere","composePath":"/app/data/stacks/aftere/docker-compose.yml"}],"environmentId":1}' \
+      >/dev/null 2>&1 || warn "stack adopt failed — Dockhand will still run; adopt it from the UI."
+  fi
+
+  # 4. admin user, then 5. auth ON. These two are the security-critical pair:
+  #    a user with no auth enabled protects nothing.
+  if [[ "$DOCKHAND_OK" == yes ]]; then
+    curl -fsS --max-time 10 "$DH/api/users" -X POST \
+      -H 'Content-Type: application/json' \
+      -d "{\"username\":\"admin\",\"password\":\"${DH_PW}\"}" \
+      >/dev/null 2>&1 || dh_fail "could not create the admin user"
+  fi
+  if [[ "$DOCKHAND_OK" == yes ]]; then
+    curl -fsS --max-time 10 "$DH/api/auth/settings" -X PUT \
+      -H 'Content-Type: application/json' \
+      -d '{"authEnabled":true,"defaultProvider":"local","sessionTimeout":86400}' \
+      >/dev/null 2>&1 || dh_fail "could not enable authentication"
+  fi
+
+  # 6. prove it. An unauthenticated read must now be refused. curl -f returns
+  #    non-zero on 4xx, so SUCCESS here means auth is still off — invert it.
+  if [[ "$DOCKHAND_OK" == yes ]]; then
+    if curl -fsS --max-time 10 "$DH/api/environments" >/dev/null 2>&1; then
+      dh_fail "authentication reports enabled but the API still answers unauthenticated"
+    else
+      ok "Dockhand authenticated (verified: unauthenticated API calls are refused)"
+    fi
+  fi
+
+  # 7. only now is a public hostname acceptable.
+  if [[ "$DOCKHAND_OK" == yes && "$(answer_get AFTERE_DOCKHAND_VHOST)" == yes ]]; then
+    if [[ -f "$CONFIG_PATH/certs/dockhand.$DOMAIN/fullchain.pem" ]]; then
+      render_vhost "dockhand.$DOMAIN" "$(host_upstream "dockhand.$DOMAIN" "$DOMAIN")"
+      if docker compose exec -T nginx nginx -t >/dev/null 2>&1; then
+        docker compose exec -T nginx nginx -s reload >/dev/null 2>&1 || docker compose restart nginx >/dev/null 2>&1
+        ok "vhost: dockhand.$DOMAIN -> dockhand:3000"
+      else
+        warn "nginx rejected the dockhand vhost — inspect: docker compose exec nginx nginx -t"
+      fi
+    else
+      warn "no cert for dockhand.$DOMAIN — vhost not written. Reach it over an SSH tunnel"
+      warn "until the cert exists, then re-run init.sh."
+    fi
+  fi
+fi
+
 step "Wiring the LDAP outpost token"
 # Authentik auto-generates the outpost token (can't be injected — #9711); read
 # it back and feed it to the container. Needs auth.$DOMAIN served (it is now).
@@ -709,6 +927,13 @@ printf '  %s──── end admin login ────%s\n' "$c_warn" "$c_end"
 
 rm -f "$ANSWER_FILE"
 
+# BUILD 19b — everything below this line runs AFTER answers.env is gone, so it
+# reads .env via getcfg. answer_get here returns empty and sed complains to the
+# console ("can't read .../answers.env"), which is how the 0829 run printed a
+# blank Dockhand password and took the tunnel branch on a vhost install.
+_dh_vhost="$(getcfg AFTERE_DOCKHAND_VHOST 2>/dev/null || true)"
+_dh_pass="$(getcfg DOCKHAND_ADMIN_PASSWORD 2>/dev/null || true)"
+
 _has_mail=no;    [[ ",$PROFILES," == *",mail,"* ]] && _has_mail=yes
 _is_staging=no;  [[ "$(getcfg AFTERE_CERT_STAGING)" == Staging* ]] && _is_staging=yes
 
@@ -719,6 +944,7 @@ cat <<EOF
     https://auth.$DOMAIN       Authentik  (login: akadmin or your admin email + the password above)
 $( [[ ",$PROFILES," == *",vault,"* ]]  && echo "    https://vault.$DOMAIN      Vaultwarden" )
 $( [[ ",$PROFILES," == *",photos,"* ]] && echo "    https://immich.$DOMAIN     Immich" )
+$( [[ "${DOCKHAND_OK:-no}" == yes && "$_dh_vhost" == yes ]] && echo "    https://dockhand.$DOMAIN   Dockhand (login: admin)" )
 $( [[ "$(getcfg AFTERE_MIGRATION)" == yes ]] && echo "  Migrating? Real users (e.g. your own email) are created with new-user.sh — akadmin is just the bootstrap admin." )
 EOF
 
@@ -750,6 +976,23 @@ fi
 [[ "$_is_staging" == yes ]] && \
   echo "  Once everything looks right, swap your staging certs for real ones:  sudo STAGING=0 bash cert-http.sh"
 echo "  Nextcloud login (LDAP) is set up by nextcloud-provision.sh above. Immich / Vault OIDC tiles are still in progress."
+
+# ---- Dockhand credentials (shown once) -------------------------------------
+if [[ "${DOCKHAND_OK:-no}" == yes ]]; then
+  echo
+  echo "  Dockhand — shown once, it is also in .env as DOCKHAND_ADMIN_PASSWORD"
+  echo "    username: admin"
+  echo "    password: ${_dh_pass:-<see DOCKHAND_ADMIN_PASSWORD in .env>}"
+  if [[ "$_dh_vhost" == yes ]]; then
+    echo "    at:       https://dockhand.$DOMAIN"
+  else
+    echo "    Reach it by tunnelling from your workstation:"
+    echo "        ssh -L 3000:127.0.0.1:3000 $(whoami)@$DOMAIN"
+    echo "    then browse http://localhost:3000"
+  fi
+  echo "    ${c_dim}It holds the Docker socket: whoever logs in owns this box. Do not"
+  echo "    republish port 3000 on a public interface.${c_end}"
+fi
 
 # ---- warnings roll-up ------------------------------------------------------
 if [[ -s "$AFTERE_WARN_LOG" ]]; then

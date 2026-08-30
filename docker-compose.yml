@@ -8,6 +8,9 @@
 # NETWORKS: proxy (edge: nginx <-> apps, stalwart <-> ldap) and data (apps <->
 #   DBs + cache; DBs live here ONLY; nginx/stalwart are NOT on it).
 # TIERS via COMPOSE_PROFILES: mail | photos | vault.
+#   Plus opt-ins: immich-ml, dockhand. The marker profile "dockhand-vhost"
+#   declares no service — it carries the "give it a hostname" choice through
+#   the same profiles string active_hosts() keys on.
 # =============================================================================
 
 name: aftere
@@ -332,6 +335,36 @@ services:
       SIGNUPS_ALLOWED: "false"
     volumes:
       - ${AFTERE_CONFIG}/vaultwarden:/data
+    networks: [proxy]
+
+  # --- Optional: Docker management UI (profile: dockhand) --------------------
+  # Published on LOOPBACK ONLY, in both access modes:
+  #   vhost mode  -> nginx reaches it over the proxy network as dockhand:3000,
+  #                  so it gets TLS and lands in nginx's logs (CrowdSec sees it).
+  #   tunnel mode -> ssh -L 3000:127.0.0.1:3000 and browse localhost.
+  # The loopback publish also stays as a recovery door if nginx breaks.
+  # NEVER change this to 0.0.0.0: the bootstrap in init.sh creates the admin over
+  # plain HTTP on this port, and the panel holds a docker.sock mount.
+  #
+  # Deliberately unpinned, unlike everything else in the stack: Dockhand is a
+  # convenience UI, and it breaking cannot stop mail flow or lose data. It was
+  # briefly a ${DOCKHAND_IMAGE:-...} variable, but preflight_images reads image
+  # lines as raw text out of this file and never expands them, so that printed a
+  # spurious "unverified (invalid reference format)" on every run. (0829)
+  dockhand:
+    <<: *common
+    image: fnsys/dockhand:latest
+    container_name: aftere-dockhand
+    profiles: [dockhand]
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${AFTERE_CONFIG}/dockhand:/app/data
+      # the after-e- checkout itself, so Dockhand can read/redeploy this stack.
+      # Read-write is required for redeploy; it also means the panel can read
+      # .env. That is the trade — see ARCHITECTURE.md.
+      - ${AFTERE_REPO}:/app/data/stacks/aftere
     networks: [proxy]
 
   # --- Edge security (always on) --------------------------------------------

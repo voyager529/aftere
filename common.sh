@@ -74,6 +74,13 @@ active_hosts() {
     printf '%s\n' "mail.$domain" "stalwart.$domain" "webmail.$domain" \
                   "autoconfig.$domain" "autodiscover.$domain" "mta-sts.$domain"
   fi
+  # Dockhand only gets a hostname when the operator chose the vhost route. The
+  # marker profile "dockhand-vhost" carries that choice through the same
+  # profiles string every other host keys on, so dns-setup's gate and
+  # cert-http's SAN list pick it up with no extra config reads. (Compose
+  # ignores a profile no service declares — same trick as immich-ml.)
+  [[ ",$profiles," == *",dockhand-vhost,"* ]] && echo "dockhand.$domain"
+  return 0
 }
 
 # all_hosts <domain> — every hostname ANY tier could use, ignoring profiles.
@@ -104,9 +111,21 @@ host_upstream() {
     "autodiscover.$domain") echo "stalwart:8080" ;;
     "mta-sts.$domain")      echo "stalwart:8080" ;;
     "mail.$domain")         echo "REDIRECT:https://webmail.$domain" ;;
+    "dockhand.$domain")     echo "dockhand:3000" ;;
     *)                      echo "" ;;
   esac
 }
+
+# apex_hosts <domain> — the hostnames that MUST be A records, never CNAMEs:
+#   the apex   : a CNAME at the zone apex is illegal (RFC 1034 3.6.2)
+#   mail.      : it is the MX target, and an MX must not name a CNAME
+#                (RFC 2181 10.3) — some receivers reject outright.
+# Everything else in the host model CNAMEs to the apex, so an IP change is a
+# one-record edit. dns-setup renders and enforces this split.
+apex_hosts() { printf '%s\n' "$1" "mail.$1"; }
+
+# is_apex_host <host> <domain> — true for a host that must remain an A record
+is_apex_host() { [[ "$1" == "$2" || "$1" == "mail.$2" ]]; }
 
 # =============================================================================
 # IMAGE-TAG PREFLIGHT (#9) — check every compose image resolves BEFORE pulling
