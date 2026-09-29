@@ -17,6 +17,14 @@ name: aftere
 
 x-common: &common
   restart: unless-stopped
+  # Docker's json driver is unbounded by default and lives under /var/lib/docker,
+  # so a chatty container can fill the root disk with nobody watching. Capped
+  # here once for every service that uses the anchor.
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "5"
   environment:
     TZ: ${TZ:-Etc/UTC}
 
@@ -73,7 +81,7 @@ services:
       - ${AFTERE_CONFIG}/nginx/snippets:/etc/nginx/snippets:ro
       - ${AFTERE_CONFIG}/certs:/etc/nginx/certs:ro
       - ${AFTERE_CONFIG}/acme-challenge:/var/www/acme-challenge:ro
-      - ${AFTERE_CONFIG}/nginx/logs:/var/log/nginx
+      - ${AFTERE_LOGS}/nginx:/var/log/nginx
     networks: [proxy]
 
   # --- Identity (always on) --------------------------------------------------
@@ -379,5 +387,5 @@ services:
     volumes:
       - ${AFTERE_CONFIG}/crowdsec/config:/etc/crowdsec
       - ${AFTERE_CONFIG}/crowdsec/data:/var/lib/crowdsec/data
-      - ${AFTERE_CONFIG}/nginx/logs:/var/log/nginx:ro
+      - ${AFTERE_LOGS}/nginx:/var/log/nginx:ro
     networks: [proxy]

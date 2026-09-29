@@ -124,3 +124,60 @@ All five are regressions or latent bugs found on a real box, not new features.
    host with no vhost yet cannot 444 its own challenge.
    - Test: `curl -sI https://<nonexistent>.$DOMAIN` closes with no response;
      every real host still resolves; `cert-http.sh` still issues for a new host.
+
+
+## Build 20 — what to test
+
+### Install paths (now siblings of the checkout)
+- Clone to /opt/aftere; defaults should be /opt/aftere-{config,data,logs}.
+- "use /mnt/aftere" still gives the old layout.
+- Change a path to something that DOESN'T EXIST -> hard retry, no mkdir. This is
+  the important one: creating it would put data on the root disk and let a later
+  mount hide it.
+- Change a path to a read-only mount -> hard retry.
+- Change a path to a plain local dir that exists -> warning only, proceeds.
+- Free-space advisory prints for the data path either way; under 20G warns.
+
+### Timezone
+- Detected value offered as a starting point (cloud images are UTC).
+- "America/New York" -> accepted, echoes America/New_York.
+- "america/new_york" -> accepted, echoes corrected case.
+- "Mars/Olympus" -> rejected with the Wikipedia pointer, re-prompts.
+- .env TZ reflects the choice; containers show local time.
+
+### Logs + rotation
+- nginx logs at $AFTERE_LOGS/nginx, NOT under config.
+- CrowdSec's read-only mount points at the same place — confirm it still fires
+  after a rotation (`logrotate -f /etc/logrotate.d/aftere`). A rotation that
+  silently blinds CrowdSec looks exactly like nothing being wrong.
+- `docker inspect` shows json-file max-size 10m / max-file 5 on every service.
+- `bash log-retention.sh 30 250M` rewrites the drop-in; bad args are rejected.
+
+### Certs (the 0829 trap)
+- `./cert-http.sh --STAGING=0` now FAILS with "unknown argument" instead of
+  silently running staging.
+- `--production` with staging certs on disk auto-forces reissue instead of
+  "Domains not changed. Skipping."
+- `--help` works; `--force` still available manually.
+
+### Mail DNS moved
+- dns-setup gates only A/CNAME (incl. mail. as a cert prerequisite) — a
+  Nextcloud-only install is never blocked on MX/SPF/PTR.
+- MX/SPF/PTR now verified at the END of stalwart-provision.sh, with a re-check
+  loop. Ctrl+C leaves a provisioned Stalwart — nothing to unwind.
+- SPF tiers: absent = hard fail; 2+ records = hard fail (RFC 7208 permerror);
+  present-but-unexpected = advisory only (gateways/SES are valid setups).
+
+### Immich (all captured from the 0829 box)
+- Blueprint now sets `grant_types: [authorization_code]`. WITHOUT IT the flow
+  dies with "Invalid grant_type for provider" and a vague browser error.
+  Confirm the checkbox is ticked in Authentik's provider UI after apply.
+- `immich-provision.sh` re-locks, regenerates the maintenance token (4h life),
+  prints the handoff, takes an API key, PUTs system-config, enables OAuth.
+- Refuses to run against a STAGING cert on auth.$DOMAIN — that was the real
+  cause of "Unable to login with OAuth".
+- Confirm: hal auto-registers as non-admin, storageLabel = Authentik username,
+  admin created with the same email as SSO merges into ONE account.
+- Password login deliberately left ON as break-glass.
+- Map / release-check questions are GONE from init.sh — Immich's own wizard
+  asks them.

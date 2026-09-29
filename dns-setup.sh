@@ -58,6 +58,11 @@ if $MAIL_ON; then
     relay) case "$RELAY_HOST" in
              *mailgun*) SPF="v=spf1 a mx include:mailgun.org ~all" ;;
              *smtp2go*) SPF="v=spf1 a mx include:spf.smtp2go.com ~all" ;;
+             *mailjet*) SPF="v=spf1 a mx include:spf.mailjet.com ~all" ;;
+             # Resend is deliberately absent: it is SES-backed and authenticates a
+             # SUBDOMAIN (send.yourdomain) rather than adding an apex include, so
+             # there is no single value that slots in here. The placeholder below
+             # plus the soft SPF warning in stalwart-provision.sh handle it.
              *)         SPF="v=spf1 a mx include:<your-relay-spf> ~all" ;;
            esac ;;
     *)     SPF="v=spf1 a mx ip4:${PUBLIC_IP} ~all" ;;
@@ -184,7 +189,6 @@ resolve_ip() {
   printf '%s\n' "$out"
 }
 
-PTR_NOTE=""
 round=0
 while true; do
   round=$((round+1)); step "Check round $round"; fails=0
@@ -213,25 +217,17 @@ while true; do
     fi
   done
 
-  if $MAIL_ON; then
-    if qMX "$DOMAIN" | grep -qx "mail.$DOMAIN"; then ok "MX $DOMAIN -> mail.$DOMAIN"
-    else bad "MX $DOMAIN -> expected mail.$DOMAIN, got '$(qMX "$DOMAIN" | paste -sd, -)'"; fails=$((fails+1)); fi
-    if [[ "$MAIL_MODE" == direct ]]; then
-      _ptr="$(qPTR "$PUBLIC_IP" || true)"
-      if [[ "$_ptr" == "mail.$DOMAIN" ]]; then
-        ok "PTR $PUBLIC_IP -> mail.$DOMAIN"; PTR_NOTE=""
-      else
-        warn "PTR $PUBLIC_IP -> '${_ptr:-<none>}' (advisory — not blocking)"
-        PTR_NOTE="reverse DNS for ${PUBLIC_IP} is '${_ptr:-<none>}', not mail.${DOMAIN}. Set it at your VM provider — it costs deliverability, not startup."
-      fi
-    fi
-  fi
+  # BUILD 20 — MX / SPF / PTR are NO LONGER CHECKED HERE. None of them gate cert
+  # issuance or startup; they decide whether mail FLOWS, which is
+  # stalwart-provision.sh's business. Checking them here logjammed a
+  # Nextcloud-only install behind records it will never use. The A record for
+  # mail.$DOMAIN stays in the gate above (via active_hosts) because it IS a cert
+  # prerequisite. The records are still DISPLAYED and written to zone.txt —
+  # the operator is standing in their DNS panel right now, which is the moment
+  # to create them, even though verification happens later.
 
   if (( fails == 0 )); then
-    if [[ -n "$PTR_NOTE" ]]; then
-      echo; printf '  %sAdvisory (not blocking):%s\n' "${c_warn}" "${c_end}"
-      echo "    - ${PTR_NOTE}"
-    fi
+    $MAIL_ON && echo && echo "  ${c_dim}MX, SPF and PTR are verified later, by stalwart-provision.sh.${c_end}"
     step "All required records resolve. ${c_ok}DNS gate passed.${c_end}"
     exit 0
   fi

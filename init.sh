@@ -179,34 +179,157 @@ fi
 QN=$((QN+1)); ask AFTERE_ADMIN_EMAIL "Admin email (akadmin's email; you can also log in with it)" "$EMAIL_RE" "not a valid email"
 
 # 5 — install paths
+# BUILD 20 — defaults are now SIBLINGS OF THE CHECKOUT, not a fixed /mnt/aftere.
+# Clone to /opt/aftere and you get /opt/aftere-{config,data,logs}; the install
+# follows wherever it is put. Siblings rather than children so the checkout stays
+# a clean git tree (a stray `git clean -xdf` in there would take the data with it).
+# /mnt/aftere is still offered for anyone with a volume already mounted there.
+DEFAULT_BASE="$REPO_BASE"
+DEF_CONFIG="${DEFAULT_BASE}-config"
+DEF_DATA="${DEFAULT_BASE}-data"
+DEF_LOGS="${DEFAULT_BASE}-logs"
 QN=$((QN+1))
 if [[ -z "$(answer_get AFTERE_CONFIG)" ]]; then
   predraw
-  echo "  Defaults: config -> /mnt/aftere/config, bulk data -> /mnt/aftere/data"
-  ask_choice AFTERE_PATHCHOICE "Change either install path?" "keep defaults" "change data path" "change config path" "change both"
+  echo "  You can change your storage locations if you'd like. The defaults are"
+  echo "  ${DEF_CONFIG} for config, ${DEF_DATA} for mail and media,"
+  echo "  and ${DEF_LOGS} for nginx logs."
+  echo "  Both paths hold live databases, so keep them on local storage — a network"
+  echo "  share or S3 mount will corrupt Postgres, not just slow it down."
+  echo "  If you want bulk files on a NAS or in S3, configure that inside Nextcloud"
+  echo "  and Immich instead; both support external storage natively."
+  echo
+  echo "  If you do change a path, make sure it is ALREADY MOUNTED. after-e- will"
+  echo "  not mount anything for you, and it will not create a path you name — an"
+  echo "  unmounted path would silently fill your root disk, then vanish under the"
+  echo "  mount when it finally appears."
+  ask_choice AFTERE_PATHCHOICE "Change any install path?" \
+    "keep defaults" "use /mnt/aftere" "change config path" "change data path" "change logs path" "change all"
 else
   : # cached; still tick
 fi
-case "$(answer_get AFTERE_PATHCHOICE)" in
-  "keep defaults")      answer_set AFTERE_CONFIG /mnt/aftere/config; answer_set AFTERE_DATA /mnt/aftere/data ;;
-  "change data path")   answer_set AFTERE_CONFIG /mnt/aftere/config ;;
-  "change config path") answer_set AFTERE_DATA   /mnt/aftere/data ;;
+_pc="$(answer_get AFTERE_PATHCHOICE)"
+# Seed every path with a default, then let the conditional asks below override
+# the ones the operator chose to change.
+case "$_pc" in
+  "use /mnt/aftere") answer_set AFTERE_CONFIG /mnt/aftere/config
+                     answer_set AFTERE_DATA   /mnt/aftere/data
+                     answer_set AFTERE_LOGS   /mnt/aftere/logs ;;
+  *)                 [[ "$_pc" == "change config path" || "$_pc" == "change all" ]] || answer_set AFTERE_CONFIG "$DEF_CONFIG"
+                     [[ "$_pc" == "change data path"   || "$_pc" == "change all" ]] || answer_set AFTERE_DATA   "$DEF_DATA"
+                     [[ "$_pc" == "change logs path"   || "$_pc" == "change all" ]] || answer_set AFTERE_LOGS   "$DEF_LOGS" ;;
 esac
-# 7 — config path (conditional)
+
+# check_path <path> <label> — for OPERATOR-SUPPLIED paths only.
+#   missing      -> hard fail (retry). Creating it would put data on the root
+#                   disk and let a later mount hide it — the worst outcome.
+#   not a mount  -> advisory. A plain local directory is a legitimate choice.
+#   not writable -> hard fail (retry). Read-only or root-squashed NFS otherwise
+#                   fails much later and far less legibly.
+check_path() {
+  local pth="$1" label="$2" probe
+  if [[ ! -d "$pth" ]]; then
+    bad "$label: $pth does not exist. after-e- will not create it — mount it first."
+    return 1
+  fi
+  probe="$pth/.aftere-write-test.$$"
+  if ! ( : > "$probe" ) 2>/dev/null; then
+    bad "$label: $pth is not writable (read-only mount, or NFS root_squash?)."
+    return 1
+  fi
+  rm -f "$probe" 2>/dev/null || true
+  if command -v mountpoint >/dev/null 2>&1 && ! mountpoint -q "$pth" 2>/dev/null; then
+    warn "$label: $pth is not a mount point — data will land on whatever filesystem holds it."
+  fi
+  return 0
+}
+
+# ask_path <key> <label> — ask, validate, re-ask until it passes.
+ask_path() {
+  local key="$1" label="$2"
+  while :; do
+    ask "$key" "$label" "$PATH_RE" "absolute path"
+    check_path "$(answer_get "$key")" "$label" && break
+    answer_set "$key" ""    # clear the cached bad value so `ask` prompts again
+  done
+}
+
+# 6 — config path (conditional)
 QN=$((QN+1))
-[[ "$(answer_get AFTERE_PATHCHOICE)" == "change config path" || "$(answer_get AFTERE_PATHCHOICE)" == "change both" ]] && \
-  ask AFTERE_CONFIG "Config path" "$PATH_RE" "absolute path"
-# 8 — data path (conditional)
+[[ "$_pc" == "change config path" || "$_pc" == "change all" ]] && ask_path AFTERE_CONFIG "Config path"
+# 7 — data path (conditional)
 QN=$((QN+1))
-[[ "$(answer_get AFTERE_PATHCHOICE)" == "change data path" || "$(answer_get AFTERE_PATHCHOICE)" == "change both" ]] && \
-  ask AFTERE_DATA "Data path" "$PATH_RE" "absolute path"
+[[ "$_pc" == "change data path"   || "$_pc" == "change all" ]] && ask_path AFTERE_DATA "Data path"
+# 8 — logs path (conditional)
+QN=$((QN+1))
+[[ "$_pc" == "change logs path"   || "$_pc" == "change all" ]] && ask_path AFTERE_LOGS "Logs path"
 
 CONFIG_PATH="$(answer_get AFTERE_CONFIG)"; DATA_PATH="$(answer_get AFTERE_DATA)"
-if [[ "$DATA_PATH" != /mnt/aftere/data ]] && command -v mountpoint >/dev/null 2>&1 && ! mountpoint -q "$DATA_PATH" 2>/dev/null; then
-  warn "$DATA_PATH is not a mountpoint — if it's a separate volume, mount it (+fstab) first."
+LOGS_PATH="$(answer_get AFTERE_LOGS)"
+
+# Free-space advisory on the DATA path regardless of how it was chosen. Immich
+# fills disks faster than anything else in the stack, and a full root filesystem
+# corrupts Postgres and stops every container at once — this is the failure the
+# old fixed /mnt default was quietly guarding against.
+_df_target="$DATA_PATH"; while [[ ! -d "$_df_target" && "$_df_target" != / ]]; do _df_target="$(dirname "$_df_target")"; done
+_avail_kb="$(df -Pk "$_df_target" 2>/dev/null | awk 'NR==2{print $4}')"
+if [[ -n "$_avail_kb" ]]; then
+  _avail_gb=$(( _avail_kb / 1024 / 1024 ))
+  if (( _avail_gb < 20 )); then
+    warn "only ${_avail_gb}G free where data will live ($DATA_PATH). Photos and mail will fill that fast."
+  else
+    ok "data path has ${_avail_gb}G free"
+  fi
 fi
 
-# 9 — tier
+# 9 — timezone. Asked BEFORE the .env render (which writes TZ) and before the
+# logrotate wiring, so rotation boundaries follow the operator's day rather than
+# the datacenter's. Cloud images are UTC almost universally, so the detected
+# value is usually the datacenter's answer, not the operator's — present it as a
+# starting point, never as a recommendation.
+QN=$((QN+1))
+_tz_host="$(timedatectl show -p Timezone --value 2>/dev/null || true)"
+[[ -z "$_tz_host" && -r /etc/timezone ]] && _tz_host="$(cat /etc/timezone 2>/dev/null || true)"
+[[ -z "$_tz_host" ]] && _tz_host="Etc/UTC"
+# tz_normalize <input> — fix the two mechanical mistakes people actually make
+# (spaces for underscores, wrong case) and echo the corrected value. Anything
+# else is sent to the Wikipedia list rather than fuzzy-matched. Matches on the
+# whole relative path so UTC, Etc/UTC and America/Argentina/Buenos_Aires all work.
+tz_normalize() {
+  local want="${1// /_}" hit
+  [[ -f "/usr/share/zoneinfo/$want" ]] && { printf '%s\n' "$want"; return 0; }
+  hit="$(cd /usr/share/zoneinfo 2>/dev/null && find . -type f -ipath "./$want" 2>/dev/null | sed 's|^\./||')"
+  [[ "$(printf '%s\n' "$hit" | grep -c .)" == 1 && -n "$hit" ]] && { printf '%s\n' "$hit"; return 0; }
+  return 1
+}
+if [[ -z "$(answer_get AFTERE_TZ)" ]]; then
+  predraw
+  echo "  Timezone. This box reports ${c_bold}${_tz_host}${c_end} — but cloud images ship as UTC"
+  echo "  almost universally, so that is usually the datacenter's answer, not yours."
+  echo "  It sets log timestamps, mail headers, database backup and log-rotation times."
+  echo "  It is set once at install; changing it later means recreating containers."
+  ask_choice AFTERE_TZCHOICE "Timezone?" "keep ${_tz_host}" "set a different timezone"
+  if [[ "$(answer_get AFTERE_TZCHOICE)" == "keep ${_tz_host}" ]]; then
+    answer_set AFTERE_TZ "$_tz_host"
+  else
+    echo
+    echo "  Full list: https://en.wikipedia.org/wiki/List_of_tz_database_time_zones"
+    echo "  Use the \"TZ identifier\" column, e.g. America/New_York."
+    while :; do
+      ask AFTERE_TZ_RAW "Timezone" '^[A-Za-z][A-Za-z0-9_/+ -]*$' "e.g. America/New_York"
+      if _tz_fixed="$(tz_normalize "$(answer_get AFTERE_TZ_RAW)")"; then
+        [[ "$_tz_fixed" != "$(answer_get AFTERE_TZ_RAW)" ]] && ok "using ${c_bold}${_tz_fixed}${c_end}"
+        answer_set AFTERE_TZ "$_tz_fixed"; break
+      fi
+      bad "that doesn't look right — please check the Wikipedia list; entries are"
+      bad "case-sensitive and use underscores instead of spaces."
+      answer_set AFTERE_TZ_RAW ""
+    done
+  fi
+fi
+TZ_VALUE="$(answer_get AFTERE_TZ)"
+
+# 10 — tier
 QN=$((QN+1)); predraw
 echo "  All tiers include Nginx, Authentik, CrowdSec, and Nextcloud. Tiers add:"
 echo "    Kitchen Sink                (+ Mail [Stalwart + Roundcube], Photos [Immich], Vaultwarden)"
@@ -329,29 +452,11 @@ if [[ ",$PROFILES," == *",photos,"* ]]; then
   fi
 else answer_set AFTERE_IMMICH_ML no; fi
 
-# 11 — Immich map reverse-geocoding (privacy)
-QN=$((QN+1))
-if [[ ",$PROFILES," == *",photos,"* ]]; then
-  predraw
-  echo "  Immich can turn the GPS in your photos into place names — \"Montauk, NY\" instead"
-  echo "  of a pair of numbers. It's all local, from a built-in database; nothing leaves"
-  echo "  your server."
-  ask_yesno AFTERE_IMMICH_MAP "Name the places your photos were taken?" \
-    "Yes — name the places my photos were taken" \
-    "No — leave coordinates as-is"
-else answer_set AFTERE_IMMICH_MAP no; fi
-
-# 12 — Immich release check (privacy)
-QN=$((QN+1))
-if [[ ",$PROFILES," == *",photos,"* ]]; then
-  predraw
-  echo "  Immich can check for new versions now and then. It only checks — it never"
-  echo "  downloads or installs anything (that's update.sh's job). Off is a little more"
-  echo "  private; all it changes is whether the web interface nudges you."
-  ask_yesno AFTERE_IMMICH_RELEASECHECK "Let Immich check for new versions?" \
-    "Yes — check for new versions" \
-    "No — don't phone home (recommended)"
-else answer_set AFTERE_IMMICH_RELEASECHECK no; fi
+# BUILD 20 — the Immich map and release-check questions were REMOVED here.
+# Immich's own Getting Started wizard asks both, in front of the operator, right
+# after they create the admin account (confirmed on the 0829 box). Asking here
+# too meant asking the same thing twice and then a third time in provisioning.
+# AFTERE_IMMICH_ML stays above: it gates a compose profile, not a setting.
 
 # 13 — outbound mail mode. Relay recommended; CREDENTIALS + validation now live
 # in relay-setup.sh (run later), so init records only the DECISION here — no SMTP
@@ -360,15 +465,16 @@ QN=$((QN+1))
 if [[ ",$PROFILES," == *",mail,"* ]]; then
   if [[ -z "$(answer_get MAIL_OUTBOUND_MODE_CHOICE)" ]]; then
     predraw
-    echo "  Outbound email: Many cloud providers (AWS, Azure, Digital Ocean, Linode,"
-    echo "  and others) have their entire IP ranges blocked by most mail filters. Many"
-    echo "  of them also block sending mail by default. Residential ISPs are usually 
-    echo "  subject to both limits. Hetzner and OVA are" better choices if you'd like to"
-    echo "  send mail directly, but an alternative solution is to use a relay service like"
-    echo "  Mailgun, SMTP2Go, Resend, or Mailjet. These services reduce privacy because all"
-    echo "  your sent mail flows through them, but the tradeoff is that your email will be"
-    echo "  more likely to successfully reach your recipients, and all have free tiers if"
-    echo "  you send less than 1,000 emails a month from your server."
+    echo "  Outbound email: Many cloud providers (AWS, Azure, Digital Ocean, Linode, and"
+    echo "  others) have their entire IP ranges blocked by most mail filters. Many of them"
+    echo "  also block sending mail by default. Residential ISPs are usually subject to both"
+    echo "  limits. Hetzner and OVH are better choices if you'd like to send mail directly,"
+    echo "  but an alternative solution is to use a relay service like Mailgun, SMTP2GO,"
+    echo "  Resend, or Mailjet. These services reduce privacy because all your sent mail"
+    echo "  flows through them, but the tradeoff is that your email will be more likely to"
+    echo "  successfully reach your recipients. All have free tiers between 1,000 and 6,000"
+    echo "  emails a month, though most cap you at 100-200 per day."
+    echo
   fi
   ask_choice MAIL_OUTBOUND_MODE_CHOICE "Use a relay, or send directly from the server?" \
     "Relay (recommended)" "Direct send"
@@ -513,14 +619,13 @@ step "Rendering ${ENV_FILE}"
   echo "AFTERE_MIGRATION=$(answer_get AFTERE_MIGRATION)"
   echo "AFTERE_ADMIN_EMAIL=$(answer_get AFTERE_ADMIN_EMAIL)"
   echo "AUTHENTIK_BOOTSTRAP_EMAIL=$(answer_get AFTERE_ADMIN_EMAIL)"
-  echo "TZ=${TZ:-Etc/UTC}"; echo "PUID=1000"; echo "PGID=1000"
+  echo "TZ=${TZ_VALUE:-Etc/UTC}"; echo "PUID=1000"; echo "PGID=1000"
   echo "COMPOSE_PROFILES=$(answer_get COMPOSE_PROFILES)"
   echo "AFTERE_IMMICH_ML=$(answer_get AFTERE_IMMICH_ML)"
+  echo "AFTERE_LOGS=$LOGS_PATH"                       # nginx logs live outside the config tree
   echo "AFTERE_REPO=$REPO_BASE"                      # dockhand mounts this checkout
   echo "AFTERE_DOCKHAND=$(answer_get AFTERE_DOCKHAND)"
   echo "AFTERE_DOCKHAND_VHOST=$(answer_get AFTERE_DOCKHAND_VHOST)"
-  echo "AFTERE_IMMICH_MAP=$(answer_get AFTERE_IMMICH_MAP)"
-  echo "AFTERE_IMMICH_RELEASECHECK=$(answer_get AFTERE_IMMICH_RELEASECHECK)"
   echo "MAIL_OUTBOUND_MODE=$MAILMODE"
   echo "AFTERE_BREAKGLASS=$(answer_get AFTERE_BREAKGLASS | grep -qi '^Yes' && echo yes || echo no)"
   for k in RELAY_HOST RELAY_PORT RELAY_USER RELAY_PASSWORD CERT_MODE \
@@ -555,6 +660,7 @@ mkdir -p \
   "$CONFIG_PATH"/{redis,nextcloud/db,nextcloud/html,stalwart/etc,roundcube,roundcube-db} \
   "$CONFIG_PATH"/immich/{db,ml-cache} \
   "$CONFIG_PATH"/{vaultwarden,crowdsec/config,crowdsec/data,dockhand,dns} \
+  "$LOGS_PATH"/nginx \
   "$DATA_PATH"/{nextcloud,stalwart,immich}
 ok "directories ready"
 
@@ -901,6 +1007,18 @@ if [[ "$(answer_get AFTERE_DOCKHAND)" == yes ]]; then
       warn "until the cert exists, then re-run init.sh."
     fi
   fi
+fi
+
+# Log rotation. nginx:alpine has no logrotate and Docker's json driver is capped
+# in the compose anchor, but the nginx access/error FILES are not — unbounded,
+# they fill whatever disk AFTERE_LOGS lives on. Defaults: 15 days, early rotate
+# at 100M. Re-tune any time with: bash log-retention.sh <days> <maxsize>
+if [[ -x "$(command -v logrotate 2>/dev/null)" ]]; then
+  bash "$REPO_BASE/log-retention.sh" >/dev/null 2>&1 \
+    && ok "log rotation: 15 days / 100M (change with log-retention.sh)" \
+    || warn "could not install log rotation — run log-retention.sh by hand."
+else
+  warn "logrotate not installed — nginx logs will grow unbounded. Install it, then run log-retention.sh."
 fi
 
 step "Wiring the LDAP outpost token"

@@ -12,6 +12,33 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 [[ $EUID -eq 0 ]] || die "run as root (stops nginx, binds :80, writes certs)."
 
+# BUILD 20 — flags. Previously STAGING was env-only, and an unrecognised
+# argument was silently ignored: `./cert-http.sh --STAGING=0` ran in STAGING and
+# looked like it had worked. Anyone reaching for a switch writes a flag, so
+# accept flags, and REJECT anything unknown rather than doing the opposite of
+# what was asked.
+FORCE=0
+for arg in "$@"; do
+  case "$arg" in
+    --production|--prod) STAGING=0 ;;
+    --staging|--test)    STAGING=1 ;;
+    --force|-f)          FORCE=1 ;;
+    -h|--help)
+      cat <<'USAGE'
+  cert-http.sh [--production|--staging] [--force]
+
+    --production   real Let's Encrypt certificates (rate-limited)
+    --staging      untrusted test certificates (default)
+    --force        reissue even if the current certificate is still valid
+
+  STAGING=0 in the environment is still honoured and is equivalent to
+  --production.
+USAGE
+      exit 0 ;;
+    *) die "unknown argument: $arg   (try --help)" ;;
+  esac
+done
+
 # STAGING: an explicit env value wins (so `STAGING=0 bash cert-http.sh` still
 # forces production); otherwise honor the installer's saved choice; else default
 # to staging. Lets a standalone run match what was picked in the questionnaire.
@@ -76,11 +103,37 @@ docker compose stop nginx >/dev/null 2>&1 || warn "nginx wasn't running (fine fo
 # tidy line per host. On failure we point at the log and the retry path.
 printf '===== cert-http run %s (server=%s) =====\n' "$(date -Is 2>/dev/null || date)" "$SERVER" >> "$CERT_LOG" 2>/dev/null || true
 step "Acquiring certificates (full detail in ${CERT_LOG})"
+# BUILD 20 — staging -> production switchover.
+# acme.sh decides "is this due?" from EXPIRY ALONE, so a 90-day staging cert
+# makes it skip ("Domains not changed. Skipping.") no matter which --server is
+# requested. The operator sees a successful-looking run and an untrusted cert,
+# with no supported way forward. So: if we are asking for production and the
+# cert on disk was issued by staging, force the reissue automatically. This is
+# the most common path through the project — the questionnaire encourages
+# staging first — and it cost a full QA session on the 0829 box.
+cert_is_staging() {
+  local f="${CERTS_DIR}/$1/fullchain.pem"
+  [[ -f "$f" ]] || return 1
+  openssl x509 -issuer -noout -in "$f" 2>/dev/null | grep -qi staging
+}
+AUTO_FORCE=0
+if (( STAGING == 0 )); then
+  for host in "${HOSTS[@]}"; do
+    if cert_is_staging "$host"; then
+      AUTO_FORCE=1
+      warn "existing certificates were issued by Let's Encrypt STAGING — forcing reissue."
+      break
+    fi
+  done
+fi
+ACME_FORCE=()
+(( FORCE || AUTO_FORCE )) && ACME_FORCE=(--force)
+
 fails=0
 for host in "${HOSTS[@]}"; do
   printf '  acquiring cert for %s... ' "$host"
   printf '\n----- %s : issue -----\n' "$host" >> "$CERT_LOG" 2>&1
-  if "${ACME[@]}" --issue --standalone -d "$host" --server "$SERVER" >> "$CERT_LOG" 2>&1; then
+  if "${ACME[@]}" --issue --standalone -d "$host" --server "$SERVER" "${ACME_FORCE[@]+"${ACME_FORCE[@]}"}" >> "$CERT_LOG" 2>&1; then
     mkdir -p "${CERTS_DIR}/${host}"        # acme.sh won't create the target dir itself
     printf '\n----- %s : install -----\n' "$host" >> "$CERT_LOG" 2>&1
     # Per-host reload hook (runs on every acme.sh renewal). nginx always reloads;

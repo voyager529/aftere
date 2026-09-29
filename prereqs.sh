@@ -91,7 +91,7 @@ DNS_PKG="bind9-dnsutils"; apt-cache show bind9-dnsutils >/dev/null 2>&1 || DNS_P
 # gettext-base -> envsubst (init.sh and stalwart-provision.sh hard-require it;
 # masked on Azure Ubuntu images, which ship it, but absent on minimal Debian).
 # xz-utils -> tar can decompress the stalwart-cli .tar.xz release below.
-BASE_PKGS=( ca-certificates curl gnupg openssl jq swaks libnet-ssleay-perl "$DNS_PKG" cron git socat gettext-base xz-utils )
+BASE_PKGS=( ca-certificates curl gnupg openssl jq swaks libnet-ssleay-perl "$DNS_PKG" cron git socat gettext-base xz-utils logrotate )
 TO_INSTALL=()
 for p in "${BASE_PKGS[@]}"; do
   if dpkg -s "$p" >/dev/null 2>&1; then ok "$p already installed"; else TO_INSTALL+=("$p"); fi

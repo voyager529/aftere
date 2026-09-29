@@ -183,6 +183,93 @@ if [[ "$(getcfg MAIL_OUTBOUND_MODE 2>/dev/null)" != relay ]]; then
     || warn "couldn't read the DNS zone from Stalwart — check the admin UI (Domains -> ${AFTERE_DOMAIN} -> DNS)."
 fi
 
+# =============================================================================
+# Mail DNS verification   [build 20]
+# =============================================================================
+# Moved here from dns-setup.sh. These records decide whether mail FLOWS; they
+# gate no certificate and no container start, so blocking a Nextcloud-only
+# install on them was wrong. They run AFTER provisioning succeeded, so a failure
+# here can't abort anything — it reports, offers a re-check, and lets the
+# operator walk away with Ctrl+C. Nothing to unwind either way.
+if command -v dig >/dev/null 2>&1; then
+  step "Verifying mail DNS"
+  _dom="$AFTERE_DOMAIN"
+  _mode="$(getcfg MAIL_OUTBOUND_MODE 2>/dev/null || echo direct)"
+  _ip="$(dig -4 +short myip.opendns.com @resolver1.opendns.com 2>/dev/null | tail -n1 || true)"
+  [[ -z "$_ip" ]] && _ip="$(curl -fsS -4 https://api.ipify.org 2>/dev/null || true)"
+
+  while :; do
+    _fails=0; _advisories=()
+
+    # --- MX: blocking. No MX, no inbound mail, full stop.
+    if dig +short MX "$_dom" | awk '{print $2}' | sed 's/\.$//' | grep -qx "mail.$_dom"; then
+      ok "MX $_dom -> mail.$_dom"
+    else
+      bad "MX $_dom -> expected mail.$_dom, got '$(dig +short MX "$_dom" | paste -sd, -)'"
+      _fails=$((_fails+1))
+    fi
+
+    # --- SPF: three tiers.
+    # Absent is a hard fail (nothing valid looks like nothing). TWO OR MORE
+    # records is also hard: RFC 7208 makes that a permerror, so every receiver
+    # treats it as broken — it is the classic self-inflicted bug, from adding a
+    # provider's record ALONGSIDE an existing one instead of merging them.
+    # Anything present but unexpected is only a WARNING: relaying through SES,
+    # Proxmox Mail Gateway, Xeams, a Sophos UTM or any other gateway is a
+    # perfectly valid setup we have no business failing.
+    mapfile -t _spf < <(dig +short TXT "$_dom" | tr -d '"' | grep -i '^v=spf1' || true)
+    if (( ${#_spf[@]} == 0 )); then
+      bad "no SPF record on $_dom — receivers will treat your mail as unauthenticated."
+      _fails=$((_fails+1))
+    elif (( ${#_spf[@]} > 1 )); then
+      bad "${#_spf[@]} SPF records on $_dom — RFC 7208 makes multiple records a permanent"
+      bad "error. Merge them into ONE record."
+      _fails=$((_fails+1))
+    else
+      _want=""
+      case "$_mode" in
+        relay) case "$(getcfg RELAY_HOST 2>/dev/null || true)" in
+                 *mailgun*) _want="include:mailgun.org" ;;
+                 *smtp2go*) _want="include:spf.smtp2go.com" ;;
+                 *mailjet*) _want="include:spf.mailjet.com" ;;
+               esac ;;
+        *)     [[ -n "$_ip" ]] && _want="ip4:${_ip}" ;;
+      esac
+      if [[ -z "$_want" || "${_spf[0]}" == *"$_want"* ]]; then
+        ok "SPF present on $_dom"
+      else
+        warn "SPF on $_dom doesn't mention ${_want}."
+        _advisories+=("SPF is '${_spf[0]}' — we expected it to include ${_want}. That is fine if you relay through SES, a mail gateway (Proxmox Mail Gateway, Xeams, Sophos UTM) or anything else we can't check; only you know your sending path. Note too that SPF PASSING and SPF ALIGNING with your domain are different things — some providers need a custom return-path CNAME for alignment.")
+      fi
+    fi
+
+    # --- PTR: advisory, direct send only. With a relay, the relay's IP is what
+    # receivers see, so your PTR is irrelevant.
+    if [[ "$_mode" != relay && -n "$_ip" ]]; then
+      _ptr="$(dig -x "$_ip" +short | sed 's/\.$//' || true)"
+      if [[ "$_ptr" == "mail.$_dom" ]]; then
+        ok "PTR $_ip -> mail.$_dom"
+      else
+        warn "PTR $_ip -> '${_ptr:-<none>}' (advisory)"
+        _advisories+=("Reverse DNS for $_ip is '${_ptr:-<none>}', not mail.$_dom. Set it at your VM provider — the console that owns the IP, not your DNS registrar. It costs deliverability, not startup.")
+      fi
+    fi
+
+    if (( _fails == 0 )); then
+      if (( ${#_advisories[@]} )); then
+        echo; printf '  %sAdvisory (not blocking):%s\n' "${c_warn:-}" "${c_end:-}"
+        for _a in "${_advisories[@]}"; do echo "    - $_a"; done
+      fi
+      ok "mail DNS looks good"
+      break
+    fi
+    echo
+    printf '  %d mail DNS record(s) need attention. Mail will not flow correctly until they are fixed.\n' "$_fails"
+    printf '  Records to create are listed by dns-setup.sh, and in %s/dns/zone.txt\n' "$(getcfg AFTERE_CONFIG 2>/dev/null || echo .)"
+    read -r -p "  Press Enter to re-check (Ctrl+C to skip — Stalwart is already provisioned)... " _ < /dev/tty || break
+  done
+fi
+
 step "Done"
 printf '\n  %sOpen these inbound ports in your cloud firewall / NSG%s (mail clients + the\n' "${c_warn:-}" "${c_end:-}"
 printf '  phone need them; a closed port here fails silently as "mail not working"):\n'
