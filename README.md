@@ -81,18 +81,20 @@ Immich's Machine Learning capabilities are added.
 
 8. run postinstall-nextcloud.sh . This step gets Nextcloud syncing data.
 
-9. run newuser.sh and create a new user account by answering its questions.
+10. run newuser.sh and create a new user account by answering its questions.
 
-10. go to https://webmail.yourdomain.com; log in with those credentials to create the mailbox.
+11. go to https://webmail.yourdomain.com; log in with those credentials to create the mailbox.
 
-11. go to https://yourdomain.com; log in with the same credentials to create the Nextcloud acct.
+12. go to https://yourdomain.com; log in with the same credentials to create the Nextcloud acct.
+
+13. If Immich is selected during install, run immich-provision.sh and follow the on-screen instructions.
 
 
 <h3>PRESENT STATE OF PROJECT IS ALPHA.</h3>
 
---Stalwart Mail, Authentik, and Nextcloud are known working, complete with mail traversal.
+--Stalwart Mail, Authentik, Nextcloud, and Immich are known working, complete with mail traversal.
 
---Other projects (Immich, Vaultwarden) have not been linked to Authentik yet.
+--Vaultwarden has not been linked to Authentik yet.
 
 --Not every possible permutation of init.sh has been tested, though most have.
 
@@ -102,7 +104,7 @@ Immich's Machine Learning capabilities are added.
 <h3>Future Goals:</h3>
 
 1. Tweaks and QoL improvements for Nextcloud on web.
-2. Finalize connectivity of Immich and Vaultwarden.
+2. Finalize connectivity of Vaultwarden.
 3. General cleanup and optimization of install process.
 4. Migration functions for existing /e/Cloud users.
 6. Step-by-step deployment guide, including description of mobile app installations and configs.
